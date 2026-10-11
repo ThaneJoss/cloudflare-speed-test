@@ -12,8 +12,8 @@
   "vars": {
     "APP_ORIGIN": "https://cf-speed-test.thanejoss.com",
     "CF_ZONE_ID": "a2ffea95fdef3873be031ff20f505f8c",
-    "ACCESS_TEAM_DOMAIN": "",
-    "ACCESS_AUD": ""
+    "ACCESS_TEAM_DOMAIN": "thanejoss.cloudflareaccess.com",
+    "ACCESS_AUD": "b76b51888c7878f09121568217b8dd6d74609d763b8072532e3dcf4251776040"
   },
   "secrets": { "required": ["CF_DNS_API_TOKEN", "RUN_SIGNING_SECRET"] },
   "ratelimits": [{ "name": "WRITE_LIMITER", "namespace_id": "271001", "simple": { "limit": 5, "period": 60 } }]
