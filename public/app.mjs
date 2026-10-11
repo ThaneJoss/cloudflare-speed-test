@@ -18,9 +18,9 @@ function showRecords(records) {
   if (!records.length) { $('current').textContent = '尚无记录，首次写入时会创建。'; return; }
   for (const r of records) { const line = document.createElement('div'); line.textContent = `${r.type} · ${r.content} · ${r.proxied ? '已代理' : 'DNS only'} · TTL ${r.ttl}`; $('current').append(line); }
 }
-function showWinner(family, result, done = true) {
+function showWinner(family, result, done = true, sampled = true) {
   const prefix = family === 4 ? 'v4' : 'v6';
-  $(`${prefix}-ip`).textContent = result?.ip || (done ? '无可用结果' : '测速中…');
+  $(`${prefix}-ip`).textContent = result?.ip || (!sampled ? `本轮未抽到 IPv${family}` : done ? '无可用结果' : '测速中…');
   $(`${prefix}-latency`).textContent = result ? `${result.latencyMs.toFixed(0)} ms` : '— ms';
   $(`${prefix}-speed`).textContent = result ? `${result.mbps.toFixed(2)} Mbps` : '— Mbps';
 }
@@ -37,7 +37,7 @@ async function api(path, data) {
   const body = await response.json().catch(() => ({ error: '登录可能已过期，请刷新页面' }));
   if (!response.ok) {
     const error = new Error([body.error || `HTTP ${response.status}`, ...(body.rejected || []).map(p => p.error)].join('；'));
-    error.status = response.status; error.code = body.code;
+    error.status = response.status; error.code = body.code; error.selected = body.selected; error.rejected = body.rejected;
     throw error;
   }
   return body;
@@ -55,6 +55,8 @@ $('test').addEventListener('click', async () => {
     plan = await api('/api/plan', {});
     if (document.hidden || interrupted) throw new Error('页面进入后台，本次结果已作废。请回到页面重新测速。');
     $('results-section').hidden = false; $('progress').hidden = false; $('progress').value = 0;
+    showWinner(4, null, false, plan.probes.some(p => p.family === 4));
+    showWinner(6, null, false, plan.probes.some(p => p.family === 6));
     $('progress').max = plan.probes.length * (plan.rounds + 1);
     const results = [];
     // Serial downloads avoid competing for the user's available bandwidth.
@@ -67,15 +69,22 @@ $('test').addEventListener('click', async () => {
       if (interrupted || document.hidden) throw new Error('页面进入后台或网络中断，本次结果已作废，请重新测速。');
     }
     winners = [pickBest(results, 4), pickBest(results, 6)].filter(Boolean);
-    showWinner(4, winners.find(r => r.family === 4)); showWinner(6, winners.find(r => r.family === 6));
+    showWinner(4, winners.find(r => r.family === 4), true, plan.probes.some(p => p.family === 4)); showWinner(6, winners.find(r => r.family === 6), true, plan.probes.some(p => p.family === 6));
     if (Date.now() >= plan.expiresAt) { winners = []; throw new Error('本轮测速用时过长，结果已过期，请重新测速。'); }
     if (winners.length) {
       phase(dnsReady ? '测速完成' : '测速完成 / DNS 待恢复');
-      const skipped = plan.rejected.length ? `已跳过 ${plan.rejected.length} 个 DNS 验证失败的入口。` : '';
-      status(dnsReady ? `已选出 ${winners.length} 个优选地址，点击“写入”更新 DNS。${winners.length === 1 ? '另一地址族的现有记录将保留。' : ''}${skipped}` : `已选出 ${winners.length} 个优选地址。当前 DNS 无法读取，写入不可用；请恢复 DNS API 后刷新页面重新测速。${skipped}`, dnsReady ? 'success' : 'error');
+      status(dnsReady ? `已选出 ${winners.length} 个优选地址，点击“写入”更新 DNS。${winners.length === 1 ? '另一地址族的现有记录将保留。' : ''}` : `已选出 ${winners.length} 个优选地址。当前 DNS 无法读取，写入不可用；请恢复 DNS API 后刷新页面重新测速。`, dnsReady ? 'success' : 'error');
       expiresTimer = setTimeout(() => { winners = []; buttons(); phase('结果已过期'); status('本次结果已过期，请重新测速。'); }, Math.max(0, plan.expiresAt - Date.now()));
     } else { phase('暂无可用入口'); status('候选入口未完成全部测试。请查看结果中的原因，检查 IPv6、证书和 CORS 配置后重试。', 'error'); }
-  } catch (error) { winners = []; showWinner(4, null); showWinner(6, null); phase('测速未完成'); status(error.message || '测速失败，请刷新后重试。', 'error'); }
+  } catch (error) {
+    winners = []; showWinner(4, null); showWinner(6, null); phase('测速未完成');
+    if (Array.isArray(error.selected)) {
+      $('results-section').hidden = false;
+      showWinner(4, null, true, error.selected.some(p => p.family === 4)); showWinner(6, null, true, error.selected.some(p => p.family === 6));
+      for (const probe of error.selected) addResult({ ...probe, latencyMs: null, mbps: null, successes: 0, attempts: 0, error: error.rejected.find(p => p.id === probe.id)?.error || '本轮验证未全部通过，未测速' });
+    }
+    status(error.message || '测速失败，请刷新后重试。', 'error');
+  }
   finally { busy = false; buttons(); }
 });
 
@@ -95,6 +104,6 @@ try {
   ready = state.configured === true; dnsReady = !state.dnsError && Array.isArray(state.records); showRecords(state.records);
   const dnsMessage = state.dnsError ? `当前 DNS 读取失败：${state.dnsError.error}。` : '';
   phase(!ready ? '等待配置' : dnsReady ? '准备就绪' : '可测速 / DNS 待恢复');
-  status(!ready ? `${state.message}${dnsMessage}` : dnsReady ? `共 ${state.candidates} 个候选入口，点击“测速”开始。` : `共 ${state.candidates} 个候选入口，可点击“测速”。${dnsMessage}写入暂不可用。`, ready && dnsReady ? '' : 'error');
+  status(!ready ? `${state.message}${dnsMessage}` : dnsReady ? `池中有 ${state.candidates} 个不同 IP，每次点击“测速”重新随机抽取 ${state.sampleSize} 个。` : `池中有 ${state.candidates} 个不同 IP，可随机测速 ${state.sampleSize} 个。${dnsMessage}写入暂不可用。`, ready && dnsReady ? '' : 'error');
 } catch (error) { phase(error.status === 401 ? '请登录' : '无法读取状态'); status(error.message || '无法读取配置，请刷新重试。', 'error'); $('current').textContent = '暂时无法读取。'; }
 buttons();

@@ -1,6 +1,6 @@
 # Cloudflare Speed Test
 
-两个按钮：**测速 → 写入**。浏览器从当前网络测量固定 HTTPS 候选入口，Worker 将优选 IPv4 / IPv6 写入指定的 Cloudflare DNS 记录。没有数据库、定时任务或历史统计。
+两个按钮：**测速 → 写入**。每次点击测速，服务端从配置池重新随机抽取 **10 个不同 IP**，浏览器在当前网络测量对应的固定 HTTPS 入口，Worker 将优选 IPv4 / IPv6 写入指定的 Cloudflare DNS 记录。没有数据库、定时任务或历史统计。
 
 | 项目 | 配置 |
 | --- | --- |
@@ -14,13 +14,13 @@
 
 **代码可以构建，但仓库没有预设真实测速入口。`probes.json` 有意保持为空；部署后必须完成下面的入口配置，才能测速。**
 
-普通浏览器无法实现 `curl --resolve`，也不能任意覆盖 TLS SNI 或 HTTP Host。因此本项目采用你选择的「固定 HTTPS 候选入口」方案，**不能扫描任意 Cloudflare IP**。需要你已有的、可验证的「HTTPS 域名 ↔ 单个 Cloudflare IP」映射；一个普通 Worker Custom Domain，或给它新增一个灰云 A 记录，并不会自动提供这样的入口。
+普通浏览器无法实现 `curl --resolve`，也不能任意覆盖 TLS SNI 或 HTTP Host。现有网页采用「固定 HTTPS 候选入口」方案，**不能扫描任意 Cloudflare IP**。需要已有的、可验证的「HTTPS 域名 ↔ 单个 Cloudflare IP」映射；一个普通 Worker Custom Domain，或给它新增一个灰云 A 记录，并不会自动提供这样的入口。
 
 如果尚无这些入口，先准备入口基础设施。不能把 `https://104.16.x.x` 的证书错误或 `fetch(..., {mode: 'no-cors'})` 的完成时间当作成功测速。仓库提供响应处理示例，但不自动创建证书、Cloudflare for SaaS 自定义主机或改变现有 Worker 路由。
 
 ### 1. 配置真实 HTTPS 候选入口
 
-编辑根目录的 `probes.json`，最多 12 个。以下仅演示格式，域名不可直接使用，IP 也没有为你的网络实测过：
+编辑根目录的 `probes.json`，需要至少 **10 个不同 IP**，可以配置更大的入口池。不同域名指向同一个 IP 只算一个候选；IPv6 展开和压缩写法会先规范化再去重。以下两项仅演示字段格式，不构成完整候选池；域名不可直接使用，IP 也没有为你的网络实测过：
 
 ```json
 [
@@ -85,12 +85,7 @@ npx wrangler secret put RUN_SIGNING_SECRET
 
 需要 Node.js 24 或更新版本。部署账户必须有此 Zone 和 Workers 的管理权限。
 
-```bash
-npm run check
-npm test
-npm run build
-npm run deploy
-```
+推送或创建 PR 后，由 GitHub CI 验证类型、单元测试、workerd DNS 回归和构建。确认部署授权后，可执行 `npx wrangler deploy`，或使用下面的 Cloudflare Builds 路径。
 
 或者在 Cloudflare Workers & Pages 中连接此 GitHub 仓库，选择 **Worker 项目**，构建命令 `npm run check && npm test`，部署命令 `npx wrangler deploy`；在对应 Worker 中配置上面的两个 Secrets。固定入口仍须先通过 `npm run verify:probes`。这是 Worker + Static Assets 项目，不是仅上传 `public/` 的静态 Pages 站点。
 
@@ -100,7 +95,11 @@ npm run deploy
 
 ## 按钮行为
 
-**测速**：服务端先校验每个候选的公共 DNS 与 Cloudflare 网段，再发放 10 分钟有效、绑定当前登录用户与候选配置的签名清单。浏览器随机排列候选，串行执行每个候选 3 次 1 KiB 请求和 1 次 256 KiB 下载。每个请求 6 秒超时。页面切到后台或网络中断，本次结果作废。
+**测速**：每次请求均从规范化去重后的配置池无放回随机抽取 10 个，IPv4 / IPv6 合计 10 个，地址族比例随配置池。服务端只检查本轮这 10 个的公共 DNS 与 Cloudflare 网段；若其中一个未通过，明确返回本轮候选及原因，不偷偷补抽或缩减数量。全部验证通过后发放 10 分钟有效、绑定当前登录用户、本轮 10 个 ID 和候选配置的签名清单。浏览器随机排列这 10 个，串行执行每个候选 3 次 1 KiB 请求和 1 次 256 KiB 下载。每个请求 6 秒超时。页面切到后台或网络中断，本次结果作废。
+
+不足 10 个唯一 IP 时页面明确显示当前数量，不宣称一轮已就绪。重复点击会独立重新抽样，但不同轮可以重叠；池正好 10 个时只会改变顺序，不会凭空产生新地址。本轮未抽到某地址族时会注明「未抽到」，不将其当成 IPv6 不可用的证据。某地址族的全部真实请求失败时则按原规则不选出结果，并保留已有 DNS。
+
+候选来源与完整本机测速方案见 [候选来源研究](docs/candidate-sources.md)。官方网段只说明地址归属，不能把原始 IP 列表直接填成就绪的浏览器 HTTPS 探针。
 
 仅全部请求成功、标识和随机 nonce 一致、响应大小正确的候选可写入。分别在 IPv4 / IPv6 中寻找最低请求延迟；在距离最低延迟 15% 以内的候选中，优先选择短下载速率较高者。
 
@@ -123,13 +122,7 @@ npm run deploy
 
 ## 开发与验证
 
-```bash
-npm ci
-npm run check     # Wrangler 生成平台类型 + TypeScript + 浏览器脚本语法
-npm test          # DNS 写入与拒绝场景、签名、来源校验、测速真实性
-npm run test:runtime  # 用本地 workerd 和虚构上游验证 DNS 请求，无外网及真实写入
-npm run build    # 本地打包，不部署或修改真实 DNS
-```
+验证由 [GitHub CI](.github/workflows/ci.yml) 执行：`npm run check` 检查类型和浏览器脚本语法，`npm test` 覆盖 DNS、签名、随机抽取十个与测速真实性，`npm run test:runtime` 在隔离 workerd 中验证 DNS 请求，`npm run build` 打包但不部署。PR 和 main 推送都会触发，不需要在用户机器上运行测试；尚未推送的修改不能声称 CI 已通过。
 
 测试使用内存响应和虚构凭据，不调用真实 DNS 修改。`.dev.vars.example` 仅为开发凭据格式示例；不存在绕过 Access 的生产开关。`npm run dev` 可预览静态页面，本地 API 仍要求有效的 Access 配置与 JWT。
 

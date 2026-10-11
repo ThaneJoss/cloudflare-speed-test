@@ -14,7 +14,7 @@ export function canonical(ip: string): string {
 }
 
 export function loadProbes(source: unknown = candidates): Probe[] {
-  if (!Array.isArray(source) || source.length > 12) throw new AppError(503, '候选入口配置无效，最多允许 12 个');
+  if (!Array.isArray(source)) throw new AppError(503, '候选入口配置无效');
   const ids = new Set<string>();
   const hosts = new Set<string>();
   return source.map((item: unknown) => {

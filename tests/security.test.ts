@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SignJWT } from 'jose';
-import worker, { parseSelection, requireOrigin } from '../src/worker.ts';
+import worker, { authorizeSelection, getPlan, parseSelection, requireOrigin } from '../src/worker.ts';
 import { authenticate, signRun, verifyRun } from '../src/auth.ts';
 import { loadProbes, validateProbeDns } from '../src/probes.ts';
 
@@ -26,6 +26,17 @@ test('run token binds user, manifest, expiration and signature', async () => {
   await assert.rejects(() => verifyRun(secret + 'wrong', token, 'user1', 'manifest1'));
   const expired = await new SignJWT({ ids: ['v4'], manifest: 'manifest1' }).setProtectedHeader({ alg: 'HS256' }).setIssuer('cf-speed-test').setAudience('dns-write').setSubject('user1').setIssuedAt(1).setExpirationTime(2).setJti('old').sign(new TextEncoder().encode(secret));
   await assert.rejects(() => verifyRun(secret, expired, 'user1', 'manifest1'));
+});
+test('write authorization accepts sampled candidates and rejects a real pool candidate absent from the signed round', async () => {
+  const pool = loadProbes(Array.from({ length: 20 }, (_, index) => ({ id: `edge-${index}`, name: `Test fixture ${index}`, ip: `104.16.0.${index + 1}`, url: `https://edge-${index}.example.com/__cfst` })));
+  const manifest = 'sampling-security-test-manifest';
+  const response = await getPlan(pool, secret, 'user1', manifest, { randomUint32: () => 0, getRanges: async () => ['104.16.0.0/13'], validateDns: async () => {} });
+  const plan = await response.json();
+  const result = { id: plan.probes[0].id, successes: 3, attempts: 3, latencyMs: 50, mbps: 20 };
+  const selected = await authorizeSelection({ runToken: plan.runToken, selected: [result] }, pool, secret, 'user1', manifest);
+  assert.equal(selected[0].id, plan.probes[0].id);
+  const outside = pool.find(probe => !plan.probes.some((sampled: { id: string }) => sampled.id === probe.id))!;
+  await assert.rejects(() => authorizeSelection({ runToken: plan.runToken, selected: [{ ...result, id: outside.id }] }, pool, secret, 'user1', manifest), /候选未通过本次入口检查/);
 });
 test('missing Access configuration or JWT fails closed', async () => {
   await assert.rejects(() => authenticate(new Request(origin), '', ''), /配置/);

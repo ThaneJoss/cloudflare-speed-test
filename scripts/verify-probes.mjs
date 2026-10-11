@@ -1,10 +1,12 @@
 import { cloudflareRanges, loadProbes, validateProbeDns } from '../src/probes.ts';
+import { SAMPLE_SIZE } from '../src/constants.ts';
+import { probePoolMessage, uniqueProbes } from '../src/sampling.ts';
 import { sample } from '../public/measure.mjs';
 
 // This is a deployment prerequisite check, not a speed ranking for the user's network.
-const probes = loadProbes();
-if (!probes.length) {
-  console.error('probes.json 为空。请先配置真实的固定 HTTPS 入口，参见 README。');
+const probes = uniqueProbes(loadProbes());
+if (probes.length < SAMPLE_SIZE) {
+  console.error(probePoolMessage(probes.length));
   process.exitCode = 1;
 } else {
   const ranges = await cloudflareRanges();

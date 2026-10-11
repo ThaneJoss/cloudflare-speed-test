@@ -19,7 +19,7 @@
     <section class="intro">
       <p class="eyebrow">CLOUDFLARE SPEED TEST</p>
       <h1>找到当前网络的<br><span>更快入口。</span></h1>
-      <p class="intro-copy">测速，选出优选地址。写入，更新你的 DNS。</p>
+      <p class="intro-copy">每轮随机测试 10 个不同 IP，选出优选地址。写入，更新你的 DNS。</p>
     </section>
     <section class="workspace" aria-label="测速面板">
       <div class="workspace-heading"><h2>本次优选</h2><span id="phase" class="phase">准备就绪</span></div>
@@ -39,7 +39,7 @@
       <div class="actions"><button id="test" type="button" disabled><span aria-hidden="true">↗</span> 测速</button><button id="write" type="button" disabled><span aria-hidden="true">↓</span> 写入</button></div>
       <progress id="progress" max="100" value="0" aria-label="测速进度" hidden></progress>
       <p id="status" class="status" role="status" aria-live="polite">正在读取配置…</p>
-      <p class="fine-print">每轮最多约 3.1 MiB 响应数据。请保持页面在前台，并在要优化的网络上测试。</p>
+      <p class="fine-print">从已配置的固定 HTTPS 入口池重新抽样，IPv4 / IPv6 共 10 个，约 2.6 MiB 响应数据。请保持页面在前台，并在要优化的网络上测试。</p>
     </section>
     <section id="results-section" class="details-panel" hidden>
       <div class="workspace-heading"><h2>候选结果</h2><span>3 次请求 + 短下载</span></div>
