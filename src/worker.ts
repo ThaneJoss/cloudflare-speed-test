@@ -1,10 +1,19 @@
 import { authenticate, fingerprint, signRun, verifyRun } from './auth.ts';
 import { AppError, PROBE_BYTES, ROUNDS, RUN_SECONDS, TARGET, TIMEOUT_MS } from './constants.ts';
-import { DnsClient, publicRecords } from './dns.ts';
+import { DnsClient, publicRecords, type DnsRecord } from './dns.ts';
 import { cloudflareRanges, loadProbes, readJson, validateProbeDns, type Probe } from './probes.ts';
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+}
+
+export async function getStatus(probes: Probe[], fetchRecords: () => Promise<DnsRecord[]>) {
+  const state = { target: TARGET, candidates: probes.length, configured: probes.length > 0, message: probes.length ? '' : '尚未配置 HTTPS 候选入口。请按 README 填写 probes.json 并验证后部署。' };
+  try { return { ...state, records: publicRecords(await fetchRecords()) }; }
+  catch (error) {
+    if (!(error instanceof AppError)) throw error;
+    return { ...state, records: null, dnsError: { error: error.message, ...(error.code ? { code: error.code } : {}) } };
+  }
 }
 
 export function requireOrigin(request: Request, origin: string) {
@@ -50,8 +59,7 @@ export default {
       if (request.method !== expected) return json({ error: 'Method not allowed' }, 405);
       if (request.method === 'POST') requireOrigin(request, env.APP_ORIGIN);
       const subject = await authenticate(request, env.ACCESS_TEAM_DOMAIN, env.ACCESS_AUD);
-      const dns = new DnsClient(env.CF_ZONE_ID, env.CF_DNS_API_TOKEN);
-      if (path === '/api/status') return json({ target: TARGET, candidates: probes.length, records: publicRecords(await dns.current()), configured: probes.length > 0, message: probes.length ? '' : '尚未配置 HTTPS 候选入口。请按 README 填写 probes.json 并验证后部署。' });
+      if (path === '/api/status') return json(await getStatus(probes, () => new DnsClient(env.CF_ZONE_ID, env.CF_DNS_API_TOKEN).current()));
       if (!(await env.WRITE_LIMITER.limit({ key: `${path}:${subject}` })).success) throw new AppError(429, '操作过于频繁，请在一分钟后重试');
       if (!probes.length) throw new AppError(503, '尚未配置 HTTPS 候选入口，请先填写 probes.json');
       const manifest = await fingerprint(probes);
@@ -69,6 +77,7 @@ export default {
         const runToken = await signRun(env.RUN_SIGNING_SECRET, subject, valid.map(p => p.id), manifest);
         return json({ probes: valid, rejected, runToken, expiresAt: Date.now() + RUN_SECONDS * 1000, rounds: ROUNDS, timeoutMs: TIMEOUT_MS, bytes: PROBE_BYTES, target: TARGET });
       }
+      const dns = new DnsClient(env.CF_ZONE_ID, env.CF_DNS_API_TOKEN);
       if (Number(request.headers.get('Content-Length') || 0) > 8192) throw new AppError(413, '请求过大');
       let body: unknown;
       try { body = await readJson(new Response(request.body), 8192); } catch { throw new AppError(400, '请求过大或 JSON 无效'); }
@@ -81,7 +90,7 @@ export default {
       console.log(JSON.stringify({ event: 'dns_write', target: TARGET, types: selection.selected.map(p => p.family === 4 ? 'A' : 'AAAA'), changed: result.changed }));
       return json({ ...result, target: TARGET, message: result.changed ? 'DNS 已写入并核对，解析缓存可能需要约 5 分钟更新。' : '当前 DNS 已是本次优选结果。' });
     } catch (error) {
-      if (error instanceof AppError) return json({ error: error.message }, error.status);
+      if (error instanceof AppError) return json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, error.status);
       console.error(JSON.stringify({ event: 'request_failed', path, type: error instanceof Error ? error.name : 'Unknown' }));
       return json({ error: '服务暂时无法完成请求，请稍后重试；若刚执行写入，请先刷新核对 DNS。' }, 500);
     }

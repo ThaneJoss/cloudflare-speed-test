@@ -57,3 +57,38 @@ test('unexpected readback is reported, not falsely called a successful write', a
   const fetcher = async () => { calls++; return calls === 2 ? reply({}) : reply([record('A', '104.16.0.2')]); };
   await assert.rejects(() => new DnsClient('a'.repeat(32), 'fake', fetcher as typeof fetch).write([v4]), /预期不同/);
 });
+
+test('DNS fetch uses manual redirects and rejects them without retrying a write', async () => {
+  const calls: RequestInit[] = [];
+  const fetcher = async (_input: string | URL | Request, init?: RequestInit) => {
+    calls.push(init!);
+    assert.equal(init?.redirect, 'manual');
+    return calls.length === 1 ? reply([]) : new Response(null, { status: 307, headers: { Location: 'https://other.test/' } });
+  };
+  await assert.rejects(() => new DnsClient('a'.repeat(32), 'fake', fetcher as typeof fetch).write([v4]), { code: 'DNS_API_REDIRECT', status: 502 });
+  assert.deepEqual(calls.map(call => call.method), ['GET', 'POST']);
+});
+
+test('timeout, connection, malformed response and API rejection have distinct safe diagnostics', async () => {
+  const cases = [
+    { code: 'DNS_API_TIMEOUT', fetcher: async () => { throw new DOMException('fixture', 'TimeoutError'); } },
+    { code: 'DNS_API_CONNECTION_FAILED', fetcher: async () => { throw new TypeError('fixture fake-secret'); } },
+    { code: 'DNS_API_INVALID_RESPONSE', fetcher: async () => new Response('<html>fixture fake-secret</html>') },
+    { code: 'DNS_API_INVALID_RESPONSE', fetcher: async () => Response.json(null) },
+    { code: 'DNS_API_REJECTED', fetcher: async () => Response.json({ success: false, errors: [{ code: 10000, message: 'Authentication error' }] }, { status: 403, headers: { 'CF-Ray': 'test-ray' } }) }
+  ];
+  const logs: string[] = [];
+  const original = console.error;
+  console.error = (...args) => { logs.push(args.join(' ')); };
+  try {
+    for (const item of cases) await assert.rejects(() => new DnsClient('a'.repeat(32), 'fake-secret', item.fetcher as typeof fetch).current(), { code: item.code, status: 502 });
+  } finally { console.error = original; }
+  assert.equal(logs.length, cases.length);
+  assert.ok(logs.every(log => !log.includes('fake-secret') && !log.includes('Authorization')));
+  assert.deepEqual(JSON.parse(logs.at(-1)!).upstreamCodes, [10000]);
+  assert.equal(JSON.parse(logs.at(-1)!).upstreamRay, 'test-ray');
+});
+
+test('a token containing line breaks fails before issuing a DNS request without exposing its value', () => {
+  assert.throws(() => new DnsClient('a'.repeat(32), 'fake-secret\n'), { code: 'DNS_CONFIG_INVALID', status: 503 });
+});

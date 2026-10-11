@@ -94,6 +94,8 @@ npm run deploy
 
 或者在 Cloudflare Workers & Pages 中连接此 GitHub 仓库，选择 **Worker 项目**，构建命令 `npm run check && npm test`，部署命令 `npx wrangler deploy`；在对应 Worker 中配置上面的两个 Secrets。固定入口仍须先通过 `npm run verify:probes`。这是 Worker + Static Assets 项目，不是仅上传 `public/` 的静态 Pages 站点。
 
+此仓库的部署目标是 **`cloudflare-speed-test`**，与线上 Custom Domain 实际绑定的 Worker 一致。配置运行时 Secrets 时请核对这个 Worker；Workers Builds 的构建变量不能代替运行时绑定。
+
 `wrangler.jsonc` 会绑定 `cf-speed-test.thanejoss.com`。目标 `cf-best-ip.thanejoss.com` 由写入按钮管理，不应绑定为本项目的 Custom Domain。
 
 ## 按钮行为
@@ -125,9 +127,16 @@ npm run deploy
 npm ci
 npm run check     # Wrangler 生成平台类型 + TypeScript + 浏览器脚本语法
 npm test          # DNS 写入与拒绝场景、签名、来源校验、测速真实性
+npm run test:runtime  # 用本地 workerd 和虚构上游验证 DNS 请求，无外网及真实写入
 npm run build    # 本地打包，不部署或修改真实 DNS
 ```
 
 测试使用内存响应和虚构凭据，不调用真实 DNS 修改。`.dev.vars.example` 仅为开发凭据格式示例；不存在绕过 Access 的生产开关。`npm run dev` 可预览静态页面，本地 API 仍要求有效的 Access 配置与 JWT。
+
+## DNS API 故障定位
+
+Worker 的 DNS 请求使用 `redirect: 'manual'` 并显式拒绝所有 3xx。workerd 对 `redirect: 'error'` 会在发送请求前抛出 `Invalid redirect value`；把全局 `fetch` 保存到对象后通过对象方法调用还会抛出 `Illegal invocation`，因此客户端先取出函数再独立调用。浏览器脚本仍可使用标准的 `error` 模式。`npm run test:runtime` 会分别复现两个旧错误，再测试实际 `DnsClient` 的成功读取、重定向拒绝、API 拒绝和非 JSON 响应。
+
+DNS 请求失败会写入 `dns_api_failed` 结构化日志，包含错误分类、读取或写入操作；收到上游响应时还包含 HTTP 状态、Cloudflare 错误码及 CF-Ray。不记录 Token、Authorization、请求体或原始异常文本。`/api/status` 在登录验证后分别返回候选配置与 DNS 状态：读取失败时 `records` 为 `null`、`dnsError` 说明原因；成功但无记录时为 `[]`。已有真实候选时仍可测速，读取失败时写入保持不可用。空 `probes.json` 始终禁止测速，并明确显示配置提示。
 
 官方参考：[Workers Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)、[Static Assets](https://developers.cloudflare.com/workers/static-assets/binding/)、[DNS records](https://developers.cloudflare.com/dns/manage-dns-records/reference/dns-record-types/)、[DNS batch changes](https://developers.cloudflare.com/dns/manage-dns-records/how-to/batch-record-changes/)、[Access JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)、[Fetch API](https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch)。

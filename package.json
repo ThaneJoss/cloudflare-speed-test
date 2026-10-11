@@ -9,10 +9,11 @@
     "types": "wrangler types",
     "check": "npm run types && tsc --noEmit && node --check public/app.mjs && node --check public/measure.mjs",
     "test": "node --test tests/*.test.ts tests/*.test.mjs",
+    "test:runtime": "node scripts/verify-dns-runtime.mjs",
     "build": "wrangler deploy --dry-run --outdir dist",
-    "deploy": "npm run check && npm test && wrangler deploy",
+    "deploy": "npm run check && npm test && npm run test:runtime && wrangler deploy",
     "verify:probes": "node scripts/verify-probes.mjs"
   },
   "dependencies": { "ipaddr.js": "^2.2.0", "jose": "^6.1.0" },
-  "devDependencies": { "@types/node": "^24.0.0", "typescript": "^5.9.3", "wrangler": "4.149.0" }
+  "devDependencies": { "@types/node": "^24.0.0", "esbuild": "0.28.2", "miniflare": "5.20261006.1-alpha", "typescript": "^5.9.3", "wrangler": "4.149.0" }
 }

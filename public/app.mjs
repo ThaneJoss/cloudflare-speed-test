@@ -3,6 +3,7 @@ import { measureProbe, pickBest } from './measure.mjs';
 const $ = (id) => document.getElementById(id);
 let busy = false;
 let ready = false;
+let dnsReady = false;
 let plan = null;
 let winners = [];
 let expiresTimer = null;
@@ -10,9 +11,10 @@ let interrupted = false;
 
 function status(text, kind = '') { $('status').textContent = text; $('status').className = `status ${kind}`; }
 function phase(text) { $('phase').textContent = text; }
-function buttons() { $('test').disabled = busy || !ready; $('write').disabled = busy || !winners.length || !plan || Date.now() >= plan.expiresAt; }
+function buttons() { $('test').disabled = busy || !ready; $('write').disabled = busy || !dnsReady || !winners.length || !plan || Date.now() >= plan.expiresAt; }
 function showRecords(records) {
   $('current').replaceChildren();
+  if (records === null) { $('current').textContent = '暂时无法读取。'; return; }
   if (!records.length) { $('current').textContent = '尚无记录，首次写入时会创建。'; return; }
   for (const r of records) { const line = document.createElement('div'); line.textContent = `${r.type} · ${r.content} · ${r.proxied ? '已代理' : 'DNS only'} · TTL ${r.ttl}`; $('current').append(line); }
 }
@@ -33,7 +35,11 @@ function addResult(result) {
 async function api(path, data) {
   const response = await fetch(path, { method: data === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store', headers: data === undefined ? {} : { 'Content-Type': 'application/json' }, ...(data === undefined ? {} : { body: JSON.stringify(data) }), signal: AbortSignal.timeout(60000), redirect: 'error' });
   const body = await response.json().catch(() => ({ error: '登录可能已过期，请刷新页面' }));
-  if (!response.ok) throw new Error([body.error || `HTTP ${response.status}`, ...(body.rejected || []).map(p => p.error)].join('；'));
+  if (!response.ok) {
+    const error = new Error([body.error || `HTTP ${response.status}`, ...(body.rejected || []).map(p => p.error)].join('；'));
+    error.status = response.status; error.code = body.code;
+    throw error;
+  }
   return body;
 }
 
@@ -64,9 +70,9 @@ $('test').addEventListener('click', async () => {
     showWinner(4, winners.find(r => r.family === 4)); showWinner(6, winners.find(r => r.family === 6));
     if (Date.now() >= plan.expiresAt) { winners = []; throw new Error('本轮测速用时过长，结果已过期，请重新测速。'); }
     if (winners.length) {
-      phase('测速完成');
+      phase(dnsReady ? '测速完成' : '测速完成 / DNS 待恢复');
       const skipped = plan.rejected.length ? `已跳过 ${plan.rejected.length} 个 DNS 验证失败的入口。` : '';
-      status(`已选出 ${winners.length} 个优选地址，点击“写入”更新 DNS。${winners.length === 1 ? '另一地址族的现有记录将保留。' : ''}${skipped}`, 'success');
+      status(dnsReady ? `已选出 ${winners.length} 个优选地址，点击“写入”更新 DNS。${winners.length === 1 ? '另一地址族的现有记录将保留。' : ''}${skipped}` : `已选出 ${winners.length} 个优选地址。当前 DNS 无法读取，写入不可用；请恢复 DNS API 后刷新页面重新测速。${skipped}`, dnsReady ? 'success' : 'error');
       expiresTimer = setTimeout(() => { winners = []; buttons(); phase('结果已过期'); status('本次结果已过期，请重新测速。'); }, Math.max(0, plan.expiresAt - Date.now()));
     } else { phase('暂无可用入口'); status('候选入口未完成全部测试。请查看结果中的原因，检查 IPv6、证书和 CORS 配置后重试。', 'error'); }
   } catch (error) { winners = []; showWinner(4, null); showWinner(6, null); phase('测速未完成'); status(error.message || '测速失败，请刷新后重试。', 'error'); }
@@ -74,7 +80,7 @@ $('test').addEventListener('click', async () => {
 });
 
 $('write').addEventListener('click', async () => {
-  if (busy || !plan || !winners.length || Date.now() >= plan.expiresAt) return;
+  if (busy || !dnsReady || !plan || !winners.length || Date.now() >= plan.expiresAt) return;
   busy = true; buttons(); clearTimeout(expiresTimer); phase('写入中'); status('正在更新并核对 DNS 记录…');
   try {
     const selected = winners.map(({ id, successes, attempts, latencyMs, mbps }) => ({ id, successes, attempts, latencyMs, mbps }));
@@ -86,8 +92,9 @@ $('write').addEventListener('click', async () => {
 
 try {
   const state = await api('/api/status');
-  ready = state.configured; showRecords(state.records);
-  phase(ready ? '准备就绪' : '等待配置');
-  status(ready ? `共 ${state.candidates} 个候选入口，点击“测速”开始。` : state.message, ready ? '' : 'error');
-} catch (error) { phase('等待配置 / 登录'); status(error.message || '无法读取配置，请刷新重试。', 'error'); $('current').textContent = '暂时无法读取。'; }
+  ready = state.configured === true; dnsReady = !state.dnsError && Array.isArray(state.records); showRecords(state.records);
+  const dnsMessage = state.dnsError ? `当前 DNS 读取失败：${state.dnsError.error}。` : '';
+  phase(!ready ? '等待配置' : dnsReady ? '准备就绪' : '可测速 / DNS 待恢复');
+  status(!ready ? `${state.message}${dnsMessage}` : dnsReady ? `共 ${state.candidates} 个候选入口，点击“测速”开始。` : `共 ${state.candidates} 个候选入口，可点击“测速”。${dnsMessage}写入暂不可用。`, ready && dnsReady ? '' : 'error');
+} catch (error) { phase(error.status === 401 ? '请登录' : '无法读取状态'); status(error.message || '无法读取配置，请刷新重试。', 'error'); $('current').textContent = '暂时无法读取。'; }
 buttons();
