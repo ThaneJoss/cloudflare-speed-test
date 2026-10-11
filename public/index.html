@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="在当前网络测量 Cloudflare 候选入口，将优选 IPv4 / IPv6 写入 DNS。">
+  <title>Cloudflare Speed Test</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.mjs"></script>
+</head>
+<body>
+  <main>
+    <header class="masthead">
+      <a class="brand" href="/" aria-label="Cloudflare Speed Test 首页"><span class="brand-icon" aria-hidden="true">↗</span> THANEJOSS <span class="brand-divider">/</span> NETWORK</a>
+      <span class="pill"><span class="dot"></span> 浏览器实测</span>
+    </header>
+    <section class="intro">
+      <p class="eyebrow">CLOUDFLARE SPEED TEST</p>
+      <h1>找到当前网络的<br><span>更快入口。</span></h1>
+      <p class="intro-copy">测速，选出优选地址。写入，更新你的 DNS。</p>
+    </section>
+    <section class="workspace" aria-label="测速面板">
+      <div class="workspace-heading"><h2>本次优选</h2><span id="phase" class="phase">准备就绪</span></div>
+      <div class="result-grid">
+        <article class="result-card" aria-labelledby="v4-title">
+          <div class="card-heading"><h3 id="v4-title">IPv4</h3><span class="record-type">A 记录</span></div>
+          <p id="v4-ip" class="ip">尚未测速</p>
+          <div class="metrics"><div><span class="metric-label">请求延迟</span><p id="v4-latency">— <small>ms</small></p></div><div><span class="metric-label">短下载速率</span><p id="v4-speed">— <small>Mbps</small></p></div></div>
+        </article>
+        <article class="result-card" aria-labelledby="v6-title">
+          <div class="card-heading"><h3 id="v6-title">IPv6</h3><span class="record-type">AAAA 记录</span></div>
+          <p id="v6-ip" class="ip">尚未测速</p>
+          <div class="metrics"><div><span class="metric-label">请求延迟</span><p id="v6-latency">— <small>ms</small></p></div><div><span class="metric-label">短下载速率</span><p id="v6-speed">— <small>Mbps</small></p></div></div>
+        </article>
+      </div>
+      <div class="target"><span>写入目标</span><code>cf-best-ip.thanejoss.com</code><span class="dns-only">DNS only</span></div>
+      <div class="actions"><button id="test" type="button" disabled><span aria-hidden="true">↗</span> 测速</button><button id="write" type="button" disabled><span aria-hidden="true">↓</span> 写入</button></div>
+      <progress id="progress" max="100" value="0" aria-label="测速进度" hidden></progress>
+      <p id="status" class="status" role="status" aria-live="polite">正在读取配置…</p>
+      <p class="fine-print">每轮最多约 3.1 MiB 响应数据。请保持页面在前台，并在要优化的网络上测试。</p>
+    </section>
+    <section id="results-section" class="details-panel" hidden>
+      <div class="workspace-heading"><h2>候选结果</h2><span>3 次请求 + 短下载</span></div>
+      <div class="table-scroll"><table><thead><tr><th>候选 / 地址</th><th>延迟</th><th>速率</th><th>成功</th><th>状态</th></tr></thead><tbody id="results"></tbody></table></div>
+    </section>
+    <details class="current-panel"><summary>当前 DNS 记录 <span>查看</span></summary><div id="current">正在读取…</div></details>
+    <footer><span>cf-speed-test.thanejoss.com</span><span>根据当前网络 · 手动写入</span></footer>
+    <noscript>请启用 JavaScript 后进行测速。</noscript>
+  </main>
+</body>
+</html>

@@ -1,0 +1,54 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { SignJWT } from 'jose';
+import worker, { parseSelection, requireOrigin } from '../src/worker.ts';
+import { authenticate, signRun, verifyRun } from '../src/auth.ts';
+import { loadProbes, validateProbeDns } from '../src/probes.ts';
+
+const probes = loadProbes([{ id: 'v4', name: 'IPv4', ip: '104.16.0.1', url: 'https://v4.example.com/__cfst' }]);
+const secret = 'test-only-signing-secret-with-32-characters';
+const origin = 'https://cf-speed-test.thanejoss.com';
+
+test('write origin requires exact app origin and JSON', () => {
+  assert.throws(() => requireOrigin(new Request(`${origin}/api/write`, { method: 'POST', headers: { Origin: 'https://attacker.example', 'Content-Type': 'application/json' } }), origin), /仅允许/);
+  assert.throws(() => requireOrigin(new Request(`${origin}/api/write`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'text/plain' } }), origin), /application\/json/);
+});
+test('unknown candidates, duplicate families and fake success are rejected', () => {
+  const base = { id: 'v4', successes: 3, attempts: 3, latencyMs: 50, mbps: 20 };
+  for (const selected of [[{ ...base, id: 'arbitrary-ip' }], [base, base], [{ ...base, successes: 2 }], [{ ...base, latencyMs: NaN }]]) assert.throws(() => parseSelection({ runToken: 'fake', selected }, probes, ['v4']));
+  assert.equal(parseSelection({ runToken: 'fake', selected: [{ ...base, ip: '127.0.0.1' }], target: 'attacker.example' }, probes, ['v4']).selected[0].ip, '104.16.0.1');
+});
+test('run token binds user, manifest, expiration and signature', async () => {
+  const token = await signRun(secret, 'user1', ['v4'], 'manifest1');
+  assert.deepEqual(await verifyRun(secret, token, 'user1', 'manifest1'), ['v4']);
+  await assert.rejects(() => verifyRun(secret, token, 'user2', 'manifest1'));
+  await assert.rejects(() => verifyRun(secret, token, 'user1', 'manifest2'));
+  await assert.rejects(() => verifyRun(secret + 'wrong', token, 'user1', 'manifest1'));
+  const expired = await new SignJWT({ ids: ['v4'], manifest: 'manifest1' }).setProtectedHeader({ alg: 'HS256' }).setIssuer('cf-speed-test').setAudience('dns-write').setSubject('user1').setIssuedAt(1).setExpirationTime(2).setJti('old').sign(new TextEncoder().encode(secret));
+  await assert.rejects(() => verifyRun(secret, expired, 'user1', 'manifest1'));
+});
+test('missing Access configuration or JWT fails closed', async () => {
+  await assert.rejects(() => authenticate(new Request(origin), '', ''), /配置/);
+  await assert.rejects(() => authenticate(new Request(origin), 'example.cloudflareaccess.com', 'aud'), /登录/);
+  const response = await worker.fetch(new Request(`${origin}/api/write`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' } }), { ACCESS_TEAM_DOMAIN: '', ACCESS_AUD: '', APP_ORIGIN: origin } as Env, {} as ExecutionContext);
+  assert.equal(response.status, 503);
+});
+test('manifest rejects IP literal HTTPS, HTTP and hostname reused across candidates', () => {
+  assert.throws(() => loadProbes([{ ...probes[0], url: 'https://104.16.0.1/test' }]));
+  assert.throws(() => loadProbes([{ ...probes[0], url: 'http://v4.example.com/test' }]));
+  assert.throws(() => loadProbes([probes[0], { ...probes[0], id: 'v4b', ip: '104.16.0.2' }]));
+});
+test('DNS check refuses dual-stack, multi-IP, alias, wrong IP and non-Cloudflare addresses', async () => {
+  const ranges = ['104.16.0.0/13'];
+  const mock = (answers: Record<string, { type: number; data: string }[]>) => (async (url: string | URL | Request) => Response.json({ Status: 0, Answer: answers[new URL(String(url)).searchParams.get('type')!] || [] })) as typeof fetch;
+  const valid = { '1': [{ type: 1, data: '104.16.0.1' }] };
+  await validateProbeDns(probes[0], ranges, mock(valid));
+  for (const invalid of [
+    { '1': [{ type: 1, data: '104.16.0.2' }] },
+    { ...valid, '28': [{ type: 28, data: '2606:4700::1' }] },
+    { '1': [...valid['1'], { type: 1, data: '104.16.0.2' }] },
+    { ...valid, '65': [{ type: 65, data: '1 . alpn=h3' }] },
+    { ...valid, '28': [{ type: 5, data: 'other.example.com' }] }
+  ]) await assert.rejects(() => validateProbeDns(probes[0], ranges, mock(invalid)));
+  await assert.rejects(() => validateProbeDns({ ...probes[0], ip: '127.0.0.1' }, ranges, mock(valid)), /官方网段/);
+});
