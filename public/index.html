@@ -19,10 +19,17 @@
     <section class="intro">
       <p class="eyebrow">CLOUDFLARE SPEED TEST</p>
       <h1>找到当前网络的<br><span>更快入口。</span></h1>
-      <p class="intro-copy">每轮随机测试 10 个不同 IP，选出优选地址。写入，更新你的 DNS。</p>
+      <p class="intro-copy">从静态网段生成 10 个候选 IP。配置真实 HTTPS 探针后，在当前网络实测并写入 DNS。</p>
+    </section>
+    <section class="details-panel candidate-panel" aria-labelledby="candidates-title">
+      <div class="workspace-heading"><h2 id="candidates-title">静态 IP 候选</h2><button id="generate" type="button" disabled>重新生成 10 个</button></div>
+      <p id="candidate-info" class="candidate-summary">正在读取静态网段…</p>
+      <div class="table-scroll"><table><thead><tr><th>地址族</th><th>候选 IP</th><th>来源网段</th><th>状态</th></tr></thead><tbody id="candidates"></tbody></table></div>
+      <p id="candidate-status" class="status" role="status" aria-live="polite">候选地址尚未验证 HTTPS 可达性。</p>
+      <p class="fine-print">来源：<a href="https://www.cloudflare.com/ips-v4/">Cloudflare IPv4</a> / <a href="https://www.cloudflare.com/ips-v6/">IPv6</a> 静态快照。地址归属不代表服务可达；候选生成不会发送测速请求，也不会写入 DNS。</p>
     </section>
     <section class="workspace" aria-label="测速面板">
-      <div class="workspace-heading"><h2>本次优选</h2><span id="phase" class="phase">准备就绪</span></div>
+      <div class="workspace-heading"><h2>HTTPS 探针实测</h2><span id="phase" class="phase">读取配置</span></div>
       <div class="result-grid">
         <article class="result-card" aria-labelledby="v4-title">
           <div class="card-heading"><h3 id="v4-title">IPv4</h3><span class="record-type">A 记录</span></div>
@@ -42,7 +49,7 @@
       <p class="fine-print">从已配置的固定 HTTPS 入口池重新抽样，IPv4 / IPv6 共 10 个，约 2.6 MiB 响应数据。请保持页面在前台，并在要优化的网络上测试。</p>
     </section>
     <section id="results-section" class="details-panel" hidden>
-      <div class="workspace-heading"><h2>候选结果</h2><span>3 次请求 + 短下载</span></div>
+      <div class="workspace-heading"><h2>HTTPS 实测结果</h2><span>3 次请求 + 短下载</span></div>
       <div class="table-scroll"><table><thead><tr><th>候选 / 地址</th><th>延迟</th><th>速率</th><th>成功</th><th>状态</th></tr></thead><tbody id="results"></tbody></table></div>
     </section>
     <details class="current-panel"><summary>当前 DNS 记录 <span>查看</span></summary><div id="current">正在读取…</div></details>

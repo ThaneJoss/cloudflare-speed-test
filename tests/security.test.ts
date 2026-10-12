@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SignJWT } from 'jose';
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import worker, { authorizeSelection, getPlan, parseSelection, requireOrigin } from '../src/worker.ts';
 import { authenticate, signRun, verifyRun } from '../src/auth.ts';
 import { loadProbes, validateProbeDns } from '../src/probes.ts';
+import { sampleCandidateIps } from '../src/candidates.ts';
 
 const probes = loadProbes([{ id: 'v4', name: 'IPv4', ip: '104.16.0.1', url: 'https://v4.example.com/__cfst' }]);
 const secret = 'test-only-signing-secret-with-32-characters';
@@ -43,6 +44,46 @@ test('missing Access configuration or JWT fails closed', async () => {
   await assert.rejects(() => authenticate(new Request(origin), 'example.cloudflareaccess.com', 'aud'), /登录/);
   const response = await worker.fetch(new Request(`${origin}/api/write`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' } }), { ACCESS_TEAM_DOMAIN: '', ACCESS_AUD: '', APP_ORIGIN: origin } as Env, {} as ExecutionContext);
   assert.equal(response.status, 503);
+});
+test('raw candidate generation retains exact Origin and Access requirements', async () => {
+  const wrongOrigin = await worker.fetch(new Request(`${origin}/api/candidates`, { method: 'POST', headers: { Origin: 'https://attacker.example', 'Content-Type': 'application/json' } }), { APP_ORIGIN: origin } as Env, {} as ExecutionContext);
+  assert.equal(wrongOrigin.status, 403);
+  const missingLogin = await worker.fetch(new Request(`${origin}/api/candidates`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' } }), { APP_ORIGIN: origin, ACCESS_TEAM_DOMAIN: 'example.cloudflareaccess.com', ACCESS_AUD: 'test-audience' } as Env, {} as ExecutionContext);
+  assert.equal(missingLogin.status, 401);
+});
+test('an authenticated raw request works with the empty probe manifest and no DNS, limiter or signing bindings', async t => {
+  const { publicKey, privateKey } = await generateKeyPair('RS256');
+  const jwk = { ...await exportJWK(publicKey), kid: 'raw-candidate-test-key', alg: 'RS256', use: 'sig' };
+  const issuer = 'https://example.cloudflareaccess.com';
+  const token = await new SignJWT({}).setProtectedHeader({ alg: 'RS256', kid: jwk.kid }).setIssuer(issuer).setAudience('test-audience').setSubject('raw-candidate-test-user').setIssuedAt().setExpirationTime('5m').sign(privateKey);
+  const calls: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+    const url = String(input);
+    calls.push(url);
+    assert.equal(url, `${issuer}/cdn-cgi/access/certs`);
+    return Response.json({ keys: [jwk] });
+  });
+  const response = await worker.fetch(new Request(`${origin}/api/candidates`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'Cf-Access-Jwt-Assertion': token } }), { APP_ORIGIN: origin, ACCESS_TEAM_DOMAIN: 'example.cloudflareaccess.com', ACCESS_AUD: 'test-audience' } as Env, {} as ExecutionContext);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.candidates.length, 10);
+  assert.equal(body.candidatePool.sampleSize, 10);
+  assert.equal('runToken' in body, false);
+  assert.deepEqual(calls, [`${issuer}/cdn-cgi/access/certs`]);
+});
+test('raw addresses cannot become writable probes through a signed probe run', async () => {
+  let draws = 0;
+  const raw = sampleCandidateIps(length => {
+    const bytes = new Uint8Array(length);
+    bytes[length - 1] = draws++;
+    return bytes;
+  })[0];
+  const token = await signRun(secret, 'user1', ['v4'], 'raw-write-test-manifest');
+  const result = { successes: 3, attempts: 3, latencyMs: 50, mbps: 20 };
+  await assert.rejects(() => authorizeSelection({ runToken: token, selected: [{ ...raw, ...result, id: raw.ip }] }, probes, secret, 'user1', 'raw-write-test-manifest'), /候选不在本次测速清单内/);
+  const registered = await authorizeSelection({ runToken: token, selected: [{ ...raw, ...result, id: 'v4' }] }, probes, secret, 'user1', 'raw-write-test-manifest');
+  assert.equal(registered[0].ip, probes[0].ip);
+  assert.notEqual(registered[0].ip, raw.ip);
 });
 test('manifest rejects IP literal HTTPS, HTTP and hostname reused across candidates', () => {
   assert.throws(() => loadProbes([{ ...probes[0], url: 'https://104.16.0.1/test' }]));

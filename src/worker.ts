@@ -3,6 +3,7 @@ import { AppError, PROBE_BYTES, ROUNDS, RUN_SECONDS, SAMPLE_SIZE, TARGET, TIMEOU
 import { DnsClient, publicRecords, type DnsRecord } from './dns.ts';
 import { cloudflareRanges, loadProbes, readJson, validateProbeDns, type Probe } from './probes.ts';
 import { probePoolMessage, sampleProbes, uniqueProbes } from './sampling.ts';
+import { getCandidatePoolInfo, sampleCandidateIps } from './candidates.ts';
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
@@ -10,12 +11,16 @@ function json(data: unknown, status = 200): Response {
 
 export async function getStatus(probes: Probe[], fetchRecords: () => Promise<DnsRecord[]>) {
   const count = uniqueProbes(probes).length;
-  const state = { target: TARGET, candidates: count, sampleSize: SAMPLE_SIZE, configured: count >= SAMPLE_SIZE, message: probePoolMessage(count) };
+  const state = { target: TARGET, candidatePool: getCandidatePoolInfo(), probePool: { count, sampleSize: SAMPLE_SIZE, configured: count >= SAMPLE_SIZE, message: probePoolMessage(count) } };
   try { return { ...state, records: publicRecords(await fetchRecords()) }; }
   catch (error) {
     if (!(error instanceof AppError)) throw error;
     return { ...state, records: null, dnsError: { error: error.message, ...(error.code ? { code: error.code } : {}) } };
   }
+}
+
+export function getCandidates() {
+  return { candidatePool: getCandidatePoolInfo(), candidates: sampleCandidateIps() };
 }
 
 export async function getPlan(probes: Probe[], secret: string, subject: string, manifest: string, dependencies: {
@@ -72,9 +77,9 @@ export default {
   async fetch(request, env): Promise<Response> {
     const path = new URL(request.url).pathname;
     try {
-      const probes = loadProbes();
       if (!path.startsWith('/api/')) {
         if (!['GET', 'HEAD'].includes(request.method)) return json({ error: 'Method not allowed' }, 405);
+        const probes = loadProbes();
         const asset = await env.ASSETS.fetch(request);
         const response = new Response(asset.body, asset);
         const origins = [...new Set(probes.map(p => new URL(p.url).origin))].join(' ');
@@ -84,11 +89,13 @@ export default {
         response.headers.set('Cache-Control', 'no-cache');
         return response;
       }
-      const expected = path === '/api/status' ? 'GET' : ['/api/plan', '/api/write'].includes(path) ? 'POST' : null;
+      const expected = path === '/api/status' ? 'GET' : ['/api/candidates', '/api/plan', '/api/write'].includes(path) ? 'POST' : null;
       if (!expected) return json({ error: 'Not found' }, 404);
       if (request.method !== expected) return json({ error: 'Method not allowed' }, 405);
       if (request.method === 'POST') requireOrigin(request, env.APP_ORIGIN);
       const subject = await authenticate(request, env.ACCESS_TEAM_DOMAIN, env.ACCESS_AUD);
+      if (path === '/api/candidates') return json(getCandidates());
+      const probes = loadProbes();
       if (path === '/api/status') return json(await getStatus(probes, () => new DnsClient(env.CF_ZONE_ID, env.CF_DNS_API_TOKEN).current()));
       if (!(await env.WRITE_LIMITER.limit({ key: `${path}:${subject}` })).success) throw new AppError(429, '操作过于频繁，请在一分钟后重试');
       const manifest = await fingerprint(probes);

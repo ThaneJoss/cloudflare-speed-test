@@ -1,6 +1,6 @@
 # Cloudflare Speed Test
 
-两个按钮：**测速 → 写入**。每次点击测速，服务端从配置池重新随机抽取 **10 个不同 IP**，浏览器在当前网络测量对应的固定 HTTPS 入口，Worker 将优选 IPv4 / IPv6 写入指定的 Cloudflare DNS 记录。没有数据库、定时任务或历史统计。
+页面包含 **静态 IP 候选** 与 **HTTPS 探针实测** 两部分。内置 Cloudflare 官方网段，即使 `probes.json` 为空也能每轮生成 **10 个不同的候选 IP**。真实测速仍从已配置 HTTPS 探针中抽取十个，由浏览器测量，完成后可手动写入 DNS。没有数据库、定时任务或历史统计。
 
 | 项目 | 配置 |
 | --- | --- |
@@ -10,9 +10,21 @@
 | 记录类型 | A / AAAA |
 | 代理与 TTL | DNS only（灰云），300 秒 |
 
-## 部署前必须准备的内容
+## 内置静态 IP 候选池
 
-**代码可以构建，但仓库没有预设真实测速入口。`probes.json` 有意保持为空；部署后必须完成下面的入口配置，才能测速。**
+[`data/cloudflare-cidrs.json`](data/cloudflare-cidrs.json) 保存 **15 个 IPv4 CIDR、7 个 IPv6 CIDR**，核对日期 **2026-10-12**，来源为 Cloudflare 官方 [IPv4](https://www.cloudflare.com/ips-v4/) / [IPv6](https://www.cloudflare.com/ips-v6/) 文本清单。已与 XIU2 的 `ip.txt`、`ipv6.txt` 核对；该项目包含旧 IPv4 范围及嵌套 IPv6 网段，实际内置采用官方快照。不增加实时抓取或自动更新，后续可人工修改文件。
+
+[`src/candidates.ts`](src/candidates.ts) 独立生成原始 IP，不依赖 `probes.json`。默认每轮 **8 个 IPv4 + 2 个 IPv6**：在各地址族内等概率选一个网段，然后在该网段内均匀随机选地址；重复 IP 重抽，IPv4 排除该 CIDR 的网络和广播地址。这是等概率选段策略，较小网段的单个 IP 概率更高，不是把所有网段地址混合后等概率抽样，也不表示网段优劣或网络质量。
+
+IPv6 `/32` 有 `2^96` 个地址，`/29` 有 `2^99` 个。生成逻辑用密码学随机字节与 BigInt 直接计算地址偏移，至多处理十六字节，不展开全部地址。每轮都是重新抽样，前后轮允许重叠。默认保留两个 IPv6 候选，不对用户线路的 IPv6 能力作判断。
+
+`POST /api/candidates` 经过现有 Origin 与 Access 验证后返回这十个地址，包含地址族、来源 CIDR 和 `reachability: "unknown"`。它不读取 DNS 凭据、不检查网络可达性，也不发放写入签名。页面的“重新生成 10 个”可独立使用；DNS API 故障或 HTTPS 探针为空都不影响候选算法。
+
+`/api/status` 分别返回 `candidatePool` 网段元数据和 `probePool` HTTPS 配置状态。静态候选没有 URL、延迟或速率，页面始终显示“可达性未知 · 未测速”。生成候选不会使测速或写入按钮自动可用。
+
+## 配置真实 HTTPS 测量
+
+**静态候选来源已经内置；仓库尚无真实 HTTPS 测速入口，`probes.json` 仍为空。生成 IP 和完成指定 IP 的 HTTPS 测量是不同步骤，实测前需完成下面的入口配置。**
 
 普通浏览器无法实现 `curl --resolve`，也不能任意覆盖 TLS SNI 或 HTTP Host。现有网页采用「固定 HTTPS 候选入口」方案，**不能扫描任意 Cloudflare IP**。需要已有的、可验证的「HTTPS 域名 ↔ 单个 Cloudflare IP」映射；一个普通 Worker Custom Domain，或给它新增一个灰云 A 记录，并不会自动提供这样的入口。
 
@@ -99,7 +111,7 @@ npx wrangler secret put RUN_SIGNING_SECRET
 
 不足 10 个唯一 IP 时页面明确显示当前数量，不宣称一轮已就绪。重复点击会独立重新抽样，但不同轮可以重叠；池正好 10 个时只会改变顺序，不会凭空产生新地址。本轮未抽到某地址族时会注明「未抽到」，不将其当成 IPv6 不可用的证据。某地址族的全部真实请求失败时则按原规则不选出结果，并保留已有 DNS。
 
-候选来源与完整本机测速方案见 [候选来源研究](docs/candidate-sources.md)。官方网段只说明地址归属，不能把原始 IP 列表直接填成就绪的浏览器 HTTPS 探针。
+静态网段、参考项目差异和真实测量边界见 [候选来源研究](docs/candidate-sources.md)。官方网段只说明地址归属；“重新生成 10 个”展示的原始地址不会自动成为这里的 HTTPS 探针，也不能直接写入。
 
 仅全部请求成功、标识和随机 nonce 一致、响应大小正确的候选可写入。分别在 IPv4 / IPv6 中寻找最低请求延迟；在距离最低延迟 15% 以内的候选中，优先选择短下载速率较高者。
 
@@ -122,7 +134,7 @@ npx wrangler secret put RUN_SIGNING_SECRET
 
 ## 开发与验证
 
-验证由 [GitHub CI](.github/workflows/ci.yml) 执行：`npm run check` 检查类型和浏览器脚本语法，`npm test` 覆盖 DNS、签名、随机抽取十个与测速真实性，`npm run test:runtime` 在隔离 workerd 中验证 DNS 请求，`npm run build` 打包但不部署。PR 和 main 推送都会触发，不需要在用户机器上运行测试；尚未推送的修改不能声称 CI 已通过。
+验证由 [GitHub CI](.github/workflows/ci.yml) 执行：`npm run check` 检查类型和浏览器脚本语法，`npm test` 覆盖静态 CIDR 候选、巨大 IPv6 偏移、唯一性、DNS、签名和测速真实性，`npm run test:runtime` 在隔离 workerd 中验证 DNS 请求，`npm run build` 打包但不部署。PR 和 main 推送都会触发，不需要在用户机器上运行测试；尚未推送的修改不能声称 CI 已通过。
 
 测试使用内存响应和虚构凭据，不调用真实 DNS 修改。`.dev.vars.example` 仅为开发凭据格式示例；不存在绕过 Access 的生产开关。`npm run dev` 可预览静态页面，本地 API 仍要求有效的 Access 配置与 JWT。
 

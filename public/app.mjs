@@ -43,6 +43,32 @@ async function api(path, data) {
   return body;
 }
 
+async function generateCandidates() {
+  let loginRequired = false;
+  $('generate').disabled = true;
+  $('candidate-status').textContent = '正在从静态网段生成候选 IP…';
+  $('candidate-status').className = 'status';
+  try {
+    const { candidatePool, candidates } = await api('/api/candidates', {});
+    $('candidate-info').textContent = `${candidatePool.cidrCounts.ipv4} 个 IPv4 网段 / ${candidatePool.cidrCounts.ipv6} 个 IPv6 网段 · 核对 ${candidatePool.checkedAt}。每轮 ${candidatePool.distribution.ipv4} 个 IPv4 + ${candidatePool.distribution.ipv6} 个 IPv6；先等概率选网段，再在段内随机取地址。`;
+    $('candidates').replaceChildren();
+    for (const candidate of candidates) {
+      const row = document.createElement('tr');
+      for (const text of [`IPv${candidate.family}`, candidate.ip, candidate.cidr, '可达性未知 · 未测速']) {
+        const cell = document.createElement('td'); cell.textContent = text; row.append(cell);
+      }
+      $('candidates').append(row);
+    }
+    $('candidate-status').textContent = `已生成 ${candidates.length} 个不同的候选 IP。尚未验证这些地址的 HTTPS 可达性，不能直接测速或写入。`;
+  } catch (error) {
+    loginRequired = error.status === 401;
+    $('candidate-status').textContent = error.message || '无法生成候选 IP，请刷新后重试。';
+    $('candidate-status').className = 'status error';
+  } finally { $('generate').disabled = loginRequired; }
+}
+
+$('generate').addEventListener('click', generateCandidates);
+
 document.addEventListener('visibilitychange', () => { if (busy && document.hidden) interrupted = true; });
 window.addEventListener('offline', () => { if (busy) interrupted = true; winners = []; buttons(); });
 
@@ -99,11 +125,14 @@ $('write').addEventListener('click', async () => {
   finally { winners = []; plan = null; busy = false; buttons(); }
 });
 
+const candidatesLoading = generateCandidates();
 try {
   const state = await api('/api/status');
-  ready = state.configured === true; dnsReady = !state.dnsError && Array.isArray(state.records); showRecords(state.records);
+  const pool = state.probePool;
+  ready = pool.configured === true; dnsReady = !state.dnsError && Array.isArray(state.records); showRecords(state.records);
   const dnsMessage = state.dnsError ? `当前 DNS 读取失败：${state.dnsError.error}。` : '';
-  phase(!ready ? '等待配置' : dnsReady ? '准备就绪' : '可测速 / DNS 待恢复');
-  status(!ready ? `${state.message}${dnsMessage}` : dnsReady ? `池中有 ${state.candidates} 个不同 IP，每次点击“测速”重新随机抽取 ${state.sampleSize} 个。` : `池中有 ${state.candidates} 个不同 IP，可随机测速 ${state.sampleSize} 个。${dnsMessage}写入暂不可用。`, ready && dnsReady ? '' : 'error');
+  phase(!ready ? '等待 HTTPS 探针' : dnsReady ? '准备就绪' : '可测速 / DNS 待恢复');
+  status(!ready ? `${pool.message}${dnsMessage}` : dnsReady ? `HTTPS 探针池有 ${pool.count} 个不同 IP，每次点击“测速”重新随机抽取 ${pool.sampleSize} 个。` : `HTTPS 探针池有 ${pool.count} 个不同 IP，可随机测速 ${pool.sampleSize} 个。${dnsMessage}写入暂不可用。`, ready && dnsReady ? '' : 'error');
 } catch (error) { phase(error.status === 401 ? '请登录' : '无法读取状态'); status(error.message || '无法读取配置，请刷新重试。', 'error'); $('current').textContent = '暂时无法读取。'; }
 buttons();
+await candidatesLoading;
