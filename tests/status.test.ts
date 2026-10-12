@@ -16,8 +16,8 @@ test('empty manifest remains visible when DNS reading fails', async () => {
   assert.equal(state.probePool.configured, false);
   assert.match(state.probePool.message, /probes\.json/);
   assert.deepEqual(state.candidatePool.cidrCounts, { ipv4: 15, ipv6: 7 });
-  assert.deepEqual(state.candidatePool.distribution, { ipv4: 8, ipv6: 2 });
-  assert.equal(state.candidatePool.sampleSize, 10);
+  assert.deepEqual(state.candidatePool.distribution, { ipv4: 10, ipv6: 10 });
+  assert.equal(state.candidatePool.sampleSize, 20);
   assert.equal('configured' in state, false);
   assert.equal('candidates' in state, false);
   assert.equal(state.records, null);

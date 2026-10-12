@@ -4,13 +4,13 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 const source = (await readFile(new URL('../public/app.mjs', import.meta.url), 'utf8')).replace(/^import .*;\r?\n/, '');
+const page = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
 const probe = { id: 'v4', name: 'IPv4 test fixture', family: 4, ip: '104.16.0.1', url: 'https://v4.example.com/__cfst' };
 const pool = Array.from({ length: 10 }, (_, i) => ({ ...probe, id: `v4-${i}`, ip: `104.16.0.${i + 1}`, url: `https://v4-${i}.example.com/__cfst` }));
-const candidatePool = { checkedAt: '2026-10-12', cidrCounts: { ipv4: 15, ipv6: 7 }, distribution: { ipv4: 8, ipv6: 2 }, sampleSize: 10, strategy: 'uniform-cidr-then-address' };
+const candidatePool = { checkedAt: '2026-10-12', cidrCounts: { ipv4: 15, ipv6: 7 }, distribution: { ipv4: 10, ipv6: 10 }, sampleSize: 20, strategy: 'uniform-cidr-then-address' };
 const candidates = [
-  ...pool.slice(0, 8).map(p => ({ ip: p.ip, family: 4, cidr: '104.16.0.0/13', reachability: 'unknown' })),
-  { ip: '2606:4700:1234:5678:abcd:1234:5678:abcd', family: 6, cidr: '2606:4700::/32', reachability: 'unknown' },
-  { ip: '2400:cb00:1234:5678:abcd:1234:5678:abcd', family: 6, cidr: '2400:cb00::/32', reachability: 'unknown' }
+  ...pool.map(p => ({ ip: p.ip, family: 4, cidr: '104.16.0.0/13', reachability: 'unknown' })),
+  ...Array.from({ length: 10 }, (_, i) => ({ ip: `2606:4700:1234:5678:abcd:1234:5678:${(i + 1).toString(16)}`, family: 6, cidr: '2606:4700::/32', reachability: 'unknown' }))
 ];
 const initialCalls = ['/api/candidates', '/api/status'];
 
@@ -45,6 +45,12 @@ async function startApp(state, responseStatus = 200, planResponse, candidateResp
   return { element, calls, measured, click: id => element(id).listeners.get('click')() };
 }
 
+test('static candidate copy specifies ten addresses per family and keeps ten-probe sampling separate', () => {
+  assert.match(page, /10 个 IPv4 \+ 10 个 IPv6 候选 IP，均未测速、可达性未知/);
+  assert.match(page, /id="generate"[^>]*>重新生成 10 IPv4 \+ 10 IPv6</);
+  assert.match(page, /固定 HTTPS 入口池重新抽样，IPv4 \/ IPv6 共 10 个/);
+});
+
 test('empty probes and failed DNS both remain visible, with measurement and writing disabled', async () => {
   const app = await startApp({ candidatePool, probePool: { configured: false, count: 0, sampleSize: 10, message: '请配置 probes.json。' }, records: null, dnsError: { error: 'DNS unavailable' } });
   assert.match(app.element('status').textContent, /probes\.json/);
@@ -54,8 +60,12 @@ test('empty probes and failed DNS both remain visible, with measurement and writ
   assert.equal(app.element('write').disabled, true);
   assert.deepEqual(app.calls, initialCalls);
   assert.equal(app.element('generate').disabled, false);
-  assert.equal(app.element('candidates').children.length, 10);
+  assert.equal(app.element('candidates').children.length, 20);
+  assert.equal(app.element('candidates').children.filter(row => row.children[0].textContent === 'IPv4').length, 10);
+  assert.equal(app.element('candidates').children.filter(row => row.children[0].textContent === 'IPv6').length, 10);
   assert.match(app.element('candidate-info').textContent, /15.*7.*2026-10-12/);
+  assert.match(app.element('candidate-info').textContent, /10 个 IPv4 \+ 10 个 IPv6/);
+  assert.match(app.element('candidate-status').textContent, /20.*10 个 IPv4 \+ 10 个 IPv6.*可达性未知 · 未测速/);
   assert.ok(app.element('candidates').children.every(row => row.children[3].textContent === '可达性未知 · 未测速'));
   assert.deepEqual(app.measured, []);
 });
@@ -114,9 +124,9 @@ test('regenerating raw candidates replaces only the unverified list and never st
   const app = await startApp({ candidatePool, probePool: { configured: false, count: 0, sampleSize: 10, message: '请配置真实 HTTPS 探针。' }, records: [] }, 200, undefined, [{ body: { candidatePool, candidates }, status: 200 }, { body: { candidatePool, candidates: next }, status: 200 }]);
   await app.click('generate');
   const rows = app.element('candidates').children;
-  assert.equal(rows.length, 10);
+  assert.equal(rows.length, 20);
   assert.deepEqual(rows.map(row => row.children[1].textContent), next.map(candidate => candidate.ip));
-  assert.match(app.element('candidate-info').textContent, /8 个 IPv4 \+ 2 个 IPv6/);
+  assert.match(app.element('candidate-info').textContent, /10 个 IPv4 \+ 10 个 IPv6/);
   assert.match(app.element('candidate-status').textContent, /不能直接测速或写入/);
   assert.equal(app.element('test').disabled, true);
   assert.equal(app.element('write').disabled, true);
@@ -134,7 +144,7 @@ test('authentication failure identifies login while server failure identifies un
   assert.equal(server.element('phase').textContent, '无法读取状态');
   assert.equal(server.element('test').disabled, true);
   assert.equal(server.element('generate').disabled, false);
-  assert.equal(server.element('candidates').children.length, 10);
+  assert.equal(server.element('candidates').children.length, 20);
 });
 
 test('a transient candidate request failure allows regeneration without enabling measurement or writing', async () => {
@@ -146,7 +156,7 @@ test('a transient candidate request failure allows regeneration without enabling
   assert.equal(app.element('generate').disabled, false);
   assert.equal(app.element('candidates').children.length, 0);
   await app.click('generate');
-  assert.equal(app.element('candidates').children.length, 10);
+  assert.equal(app.element('candidates').children.length, 20);
   assert.equal(app.element('test').disabled, true);
   assert.equal(app.element('write').disabled, true);
   assert.deepEqual(app.measured, []);

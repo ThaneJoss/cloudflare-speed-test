@@ -6,7 +6,7 @@
 
 Cloudflare 将 [IP Ranges](https://www.cloudflare.com/ips/) 指定为当前 IP 范围的官方来源，同时提供 [IPv4 文本](https://www.cloudflare.com/ips-v4/)、[IPv6 文本](https://www.cloudflare.com/ips-v6/) 和 [公开 IP API](https://developers.cloudflare.com/api/resources/ips/methods/list/)。核查时分别为 15 个 IPv4 CIDR 和 7 个 IPv6 CIDR。
 
-候选生成仅使用上述静态快照，不抓取远程来源、不增加自动更新。每轮默认八个 IPv4、两个 IPv6；各地址族先等概率选段，再在段内取随机偏移，IP 重复时重抽。IPv4 排除该 CIDR 的网络和广播地址；IPv6 用 BigInt 处理最多 99 位的主机偏移，不枚举 `2^96` 或 `2^99` 个地址。各 CIDR 的入选概率相同，段内地址数不同时，单个 IP 的概率不同。
+候选生成仅使用上述静态快照，不抓取远程来源、不增加自动更新。每轮默认十个 IPv4、十个 IPv6，共二十个候选；各地址族先等概率选段，再在段内取随机偏移，各族分别去重，IP 重复时重抽，不跨族补足数量。IPv4 排除该 CIDR 的网络和广播地址；IPv6 用 BigInt 处理最多 99 位的主机偏移，不枚举 `2^96` 或 `2^99` 个地址。各 CIDR 的入选概率相同，段内地址数不同时，单个 IP 的概率不同。
 
 已有 HTTPS 探针实测路径仍在 `/api/plan` 中读取官方 IP API，以验证探针归属；这是既有安全验证，没有变成新候选来源或更新机制。官方范围并不列出每个地址是否支持某个 HTTPS 域名；特别是从宽 IPv6 范围生成地址，并不等于该地址已配置服务。
 
@@ -27,7 +27,7 @@ speedflare 的正式测速客户端默认验证 TLS，但 [候选位置发现探
 
 ## 当前网页已经实现的范围
 
-静态候选来源已经实际入库。`data/cloudflare-cidrs.json` 保存十五个 IPv4 和七个 IPv6 网段、来源链接、核对日期及参考文件链接。`src/candidates.ts` 独立计算十个唯一原始地址，API 不依赖 HTTPS 探针池，页面显示“可达性未知 · 未测速”，没有 URL、速度或写入令牌。
+静态候选来源已经实际入库。`data/cloudflare-cidrs.json` 保存十五个 IPv4 和七个 IPv6 网段、来源链接、核对日期及参考文件链接。`src/candidates.ts` 独立计算十个唯一 IPv4 和十个唯一 IPv6 原始地址，API 不依赖 HTTPS 探针池，页面显示“可达性未知 · 未测速”，没有 URL、速度或写入令牌。生成这二十个候选没有完成逐 IP 测速，也不能把它们直接用于 DNS 写入。
 
 此前仓库没有静态 CIDR 数据文件，只有来源文档与调用官方 IP API 的探针验证逻辑。`src/sampling.ts` 操作的是从 `probes.json` 读取的 Probe 对象，所以空池无法抽样；它没有读取第三方表或生成 IP。当前保留该模块作为真实 HTTPS 探针的单独抽样逻辑，并补上独立的原始 IP 候选生成。
 

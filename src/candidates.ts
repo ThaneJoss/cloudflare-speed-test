@@ -4,7 +4,7 @@ import snapshot from '../data/cloudflare-cidrs.json' with { type: 'json' };
 export type RawCandidate = { ip: string; family: 4 | 6; cidr: string; reachability: 'unknown' };
 export type RandomBytes = (length: number) => Uint8Array;
 
-const distribution = { ipv4: 8, ipv6: 2 };
+const distribution = { ipv4: 10, ipv6: 10 };
 
 function bytesToBigInt(bytes: number[] | Uint8Array): bigint {
   let value = 0n;
@@ -56,8 +56,9 @@ export function getCandidatePoolInfo() {
 
 export function sampleCandidateIps(randomBytes: RandomBytes = length => crypto.getRandomValues(new Uint8Array(length))): RawCandidate[] {
   const candidates: RawCandidate[] = [];
-  const seen = new Set<string>();
   for (const family of ['ipv4', 'ipv6'] as const) {
+    // Each family fills its own quota; duplicates never borrow from the other family.
+    const seen = new Set<string>();
     for (let index = 0; index < distribution[family]; index++) {
       const range = ranges[family][Number(randomBelow(BigInt(ranges[family].length), randomBytes))];
       let ip: string;

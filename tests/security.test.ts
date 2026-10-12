@@ -66,8 +66,12 @@ test('an authenticated raw request works with the empty probe manifest and no DN
   const response = await worker.fetch(new Request(`${origin}/api/candidates`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'Cf-Access-Jwt-Assertion': token } }), { APP_ORIGIN: origin, ACCESS_TEAM_DOMAIN: 'example.cloudflareaccess.com', ACCESS_AUD: 'test-audience' } as Env, {} as ExecutionContext);
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.candidates.length, 10);
-  assert.equal(body.candidatePool.sampleSize, 10);
+  assert.equal(body.candidates.length, 20);
+  assert.equal(body.candidatePool.sampleSize, 20);
+  assert.deepEqual(body.candidatePool.distribution, { ipv4: 10, ipv6: 10 });
+  assert.equal(body.candidates.filter((candidate: { family: number }) => candidate.family === 4).length, 10);
+  assert.equal(body.candidates.filter((candidate: { family: number }) => candidate.family === 6).length, 10);
+  assert.ok(body.candidates.every((candidate: { reachability: string }) => candidate.reachability === 'unknown'));
   assert.equal('runToken' in body, false);
   assert.deepEqual(calls, [`${issuer}/cdn-cgi/access/certs`]);
 });

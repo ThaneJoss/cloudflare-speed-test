@@ -59,7 +59,9 @@ async function generateCandidates() {
       }
       $('candidates').append(row);
     }
-    $('candidate-status').textContent = `已生成 ${candidates.length} 个不同的候选 IP。尚未验证这些地址的 HTTPS 可达性，不能直接测速或写入。`;
+    const ipv4Count = candidates.filter(candidate => candidate.family === 4).length;
+    const ipv6Count = candidates.filter(candidate => candidate.family === 6).length;
+    $('candidate-status').textContent = `已生成 ${candidates.length} 个不同的候选 IP（${ipv4Count} 个 IPv4 + ${ipv6Count} 个 IPv6）。可达性未知 · 未测速；尚未验证这些地址的 HTTPS 可达性，不能直接测速或写入。`;
   } catch (error) {
     loginRequired = error.status === 401;
     $('candidate-status').textContent = error.message || '无法生成候选 IP，请刷新后重试。';
