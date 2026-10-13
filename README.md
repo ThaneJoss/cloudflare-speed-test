@@ -134,7 +134,22 @@ npx wrangler secret put RUN_SIGNING_SECRET
 
 ## 开发与验证
 
-验证由 [GitHub CI](.github/workflows/ci.yml) 执行：`npm run check` 检查类型和浏览器脚本语法，`npm test` 覆盖静态 CIDR 候选、巨大 IPv6 偏移、唯一性、DNS、签名和测速真实性，`npm run test:runtime` 在隔离 workerd 中验证 DNS 请求，`npm run build` 打包但不部署。PR 和 main 推送都会触发，不需要在用户机器上运行测试；尚未推送的修改不能声称 CI 已通过。
+验证由 [GitHub CI](.github/workflows/ci.yml) 在每次 PR 和 main 推送时执行，Node.js 主版本以 `.node-version` 为准，使用 `npm ci` 按锁文件安装：
+
+| 命令 | 验证范围 |
+| --- | --- |
+| `npm run lint` | ESLint 检查 Worker、浏览器、脚本和测试代码。 |
+| `npm run check` | 生成 Worker 类型，检查源码和 TypeScript 测试的类型，以及浏览器模块语法。 |
+| `npm test` | 静态 CIDR 候选、巨大 IPv6 偏移、唯一性、DNS、签名、测速真实性及静态资源响应/路由回归。 |
+| `npm run test:runtime` | 在隔离 workerd 中验证 DNS 请求。 |
+| `npm run build` | 打包 Worker 与静态资源；使用 `--dry-run`，不部署。 |
+| `npm run test:e2e` | Chromium 桌面/手机交互、键盘导航、320px 布局、浅色/深色与 axe 无障碍检查。 |
+
+浏览器测试使用回环地址的静态资源服务器，执行真实 `app.mjs` / `measure.mjs`，拦截 API 和测速响应；未识别的外部请求会中止并使测试失败。覆盖候选独立生成、十探针测速到模拟写入、入口验证失败和登录失效，不读取真实凭据、不访问真实探针、不写线上 DNS。首次在云工作区运行浏览器检查前安装 `npx playwright install --with-deps chromium`；CI 自动安装。截图和 HTML 报告作为 `browser-report` Actions 制品保留 7 天，失败时另含 trace。
+
+页面的浅色配色、字体栈、间距和卡片参考 `ThaneJoss/webapps` 的 `main`（`994a749aecb7f9143d1d180ce86e3ba5e6632149`），保留本工具的深色偏好支持与测速/DNS 流程。候选表格支持键盘聚焦和滚动，窄屏结果卡使用单列布局。源码仍保持 `public/` 原生 HTML/CSS/模块脚本，无需引入页面框架。
+
+上述质量检查由云端 CI 执行，不需要在用户机器上运行；尚未推送的修改不能声称 CI 已通过。`npm run verify:probes` 属于配置真实入口后的手工外部检查，不在自动 CI 中执行。
 
 测试使用内存响应和虚构凭据，不调用真实 DNS 修改。`.dev.vars.example` 仅为开发凭据格式示例；不存在绕过 Access 的生产开关。`npm run dev` 可预览静态页面，本地 API 仍要求有效的 Access 配置与 JWT。
 

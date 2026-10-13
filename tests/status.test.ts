@@ -57,7 +57,7 @@ test('invalid DNS configuration is a partial status failure without fetching', a
 test('a successful empty DNS response remains distinct from an unknown DNS state', async () => {
   const state = await getStatus(probes, async () => []);
   assert.deepEqual(state.records, []);
-  assert.equal(state.dnsError, undefined);
+  assert.equal('dnsError' in state, false);
 });
 
 test('unexpected errors still propagate instead of presenting partial success', async () => {

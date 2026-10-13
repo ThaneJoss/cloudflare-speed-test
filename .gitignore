@@ -9,3 +9,5 @@ dist/
 worker-configuration.d.ts
 *.log
 coverage/
+playwright-report/
+test-results/
