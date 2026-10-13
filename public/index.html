@@ -11,25 +11,29 @@
   <script type="module" src="/app.mjs"></script>
 </head>
 <body>
-  <main>
-    <header class="masthead">
-      <a class="brand" href="/" aria-label="Cloudflare Speed Test 首页"><span class="brand-icon" aria-hidden="true">↗</span> THANEJOSS <span class="brand-divider">/</span> NETWORK</a>
-      <span class="pill"><span class="dot"></span> 浏览器实测</span>
-    </header>
-    <section class="intro">
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <header class="site-header">
+    <div class="masthead">
+      <a class="brand" href="/" aria-label="Cloudflare Speed Test 首页"><span class="brand-icon" aria-hidden="true">↗</span> THANEJOSS <span class="brand-divider" aria-hidden="true">/</span> NETWORK</a>
+      <span class="pill">网络工具</span>
+    </div>
+  </header>
+  <main id="main-content" tabindex="-1">
+    <section class="intro" aria-labelledby="page-title">
       <p class="eyebrow">CLOUDFLARE SPEED TEST</p>
-      <h1>找到当前网络的<br><span>更快入口。</span></h1>
+      <h1 id="page-title">找到当前网络的<br><span>更快入口。</span></h1>
       <p class="intro-copy">从静态网段生成 10 个 IPv4 + 10 个 IPv6 候选 IP，均未测速、可达性未知。配置真实 HTTPS 探针后，在当前网络实测并写入 DNS。</p>
     </section>
     <section class="details-panel candidate-panel" aria-labelledby="candidates-title">
       <div class="workspace-heading"><h2 id="candidates-title">静态 IP 候选</h2><button id="generate" type="button" disabled>重新生成 10 IPv4 + 10 IPv6</button></div>
       <p id="candidate-info" class="candidate-summary">正在读取静态网段…</p>
-      <div class="table-scroll"><table><thead><tr><th>地址族</th><th>候选 IP</th><th>来源网段</th><th>状态</th></tr></thead><tbody id="candidates"></tbody></table></div>
+      <p id="candidate-table-help" class="table-help">表格可滚动查看；键盘聚焦后可使用方向键。</p>
+      <div class="table-scroll" role="region" aria-label="静态 IP 候选表格" aria-describedby="candidate-table-help" tabindex="0"><table><caption class="sr-only">静态候选 IP、来源网段与未测速状态</caption><thead><tr><th scope="col">地址族</th><th scope="col">候选 IP</th><th scope="col">来源网段</th><th scope="col">状态</th></tr></thead><tbody id="candidates"></tbody></table></div>
       <p id="candidate-status" class="status" role="status" aria-live="polite">候选地址尚未验证 HTTPS 可达性。</p>
       <p class="fine-print">来源：<a href="https://www.cloudflare.com/ips-v4/">Cloudflare IPv4</a> / <a href="https://www.cloudflare.com/ips-v6/">IPv6</a> 静态快照。地址归属不代表服务可达；候选生成不会发送测速请求，也不会写入 DNS。</p>
     </section>
-    <section class="workspace" aria-label="测速面板">
-      <div class="workspace-heading"><h2>HTTPS 探针实测</h2><span id="phase" class="phase">读取配置</span></div>
+    <section class="workspace" aria-labelledby="test-title">
+      <div class="workspace-heading"><h2 id="test-title">HTTPS 探针实测</h2><span id="phase" class="phase">读取配置</span></div>
       <div class="result-grid">
         <article class="result-card" aria-labelledby="v4-title">
           <div class="card-heading"><h3 id="v4-title">IPv4</h3><span class="record-type">A 记录</span></div>
@@ -48,13 +52,14 @@
       <p id="status" class="status" role="status" aria-live="polite">正在读取配置…</p>
       <p class="fine-print">从已配置的固定 HTTPS 入口池重新抽样，IPv4 / IPv6 共 10 个，约 2.6 MiB 响应数据。请保持页面在前台，并在要优化的网络上测试。</p>
     </section>
-    <section id="results-section" class="details-panel" hidden>
-      <div class="workspace-heading"><h2>HTTPS 实测结果</h2><span>3 次请求 + 短下载</span></div>
-      <div class="table-scroll"><table><thead><tr><th>候选 / 地址</th><th>延迟</th><th>速率</th><th>成功</th><th>状态</th></tr></thead><tbody id="results"></tbody></table></div>
+    <section id="results-section" class="details-panel" aria-labelledby="results-title" hidden>
+      <div class="workspace-heading"><h2 id="results-title">HTTPS 实测结果</h2><span>3 次请求 + 短下载</span></div>
+      <p id="results-table-help" class="table-help">表格可横向滚动；键盘聚焦后可使用方向键。</p>
+      <div class="table-scroll" role="region" aria-label="HTTPS 实测结果表格" aria-describedby="results-table-help" tabindex="0"><table><caption class="sr-only">本轮 HTTPS 探针的延迟、短下载速率与请求状态</caption><thead><tr><th scope="col">候选 / 地址</th><th scope="col">延迟</th><th scope="col">速率</th><th scope="col">成功</th><th scope="col">状态</th></tr></thead><tbody id="results"></tbody></table></div>
     </section>
-    <details class="current-panel"><summary>当前 DNS 记录 <span>查看</span></summary><div id="current">正在读取…</div></details>
-    <footer><span>cf-speed-test.thanejoss.com</span><span>根据当前网络 · 手动写入</span></footer>
+    <details class="current-panel"><summary>当前 DNS 记录 <span aria-hidden="true">展开 / 收起</span></summary><div id="current">正在读取…</div></details>
     <noscript>请启用 JavaScript 后进行测速。</noscript>
   </main>
+  <footer><span>cf-speed-test.thanejoss.com</span><span>根据当前网络 · 手动写入</span></footer>
 </body>
 </html>

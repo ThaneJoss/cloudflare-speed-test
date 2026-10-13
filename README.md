@@ -105,6 +105,14 @@ npx wrangler secret put RUN_SIGNING_SECRET
 
 `wrangler.jsonc` 会绑定 `cf-speed-test.thanejoss.com`。目标 `cf-best-ip.thanejoss.com` 由写入按钮管理，不应绑定为本项目的 Custom Domain。
 
+### PR 分支预览
+
+Cloudflare Builds 的现有 PR 流程执行 `npm run build` 后，再执行 `npx wrangler preview`。锁定的 Wrangler 4.149.0 支持独立的 [`previews` 配置](https://developers.cloudflare.com/workers/previews/configuration/)：静态资源和兼容性设置保留在顶层，预览变量、密钥及资源不从生产配置继承。
+
+仓库的 `previews.vars` 使用 `https://preview.invalid` 和空的 Access/DNS 配置，只用于验证分支打包与预览上传；不绑定 DNS Token、签名密钥或生产限流命名空间。预览 API 保持关闭：实际预览 Origin 的 POST 返回 403，状态读取及匹配占位 Origin 的请求在现有 Access 校验处返回 503，不发起探针或 DNS 请求。`npm test` 使用这份实际配置验证拒绝行为及零外联。
+
+预览上传成功不代表存在可访问的 URL。当前 `workers_dev: false`、`preview_urls: false` 及生产 Custom Domain 保持不变；没有为了 PR 开启域名或导入生产 Access/凭据。若要浏览线上预览，需要管理员另行授权并按 [Cloudflare 预览 URL / Access 说明](https://developers.cloudflare.com/workers/previews/custom-domains/)启用受保护的预览地址；要验证真实 API，还需独立的预览 Origin、Access 应用和测试资源。不要把生产配置复制到预览，或通过关闭校验使其可用。
+
 ## 按钮行为
 
 **测速**：每次请求均从规范化去重后的配置池无放回随机抽取 10 个，IPv4 / IPv6 合计 10 个，地址族比例随配置池。服务端只检查本轮这 10 个的公共 DNS 与 Cloudflare 网段；若其中一个未通过，明确返回本轮候选及原因，不偷偷补抽或缩减数量。全部验证通过后发放 10 分钟有效、绑定当前登录用户、本轮 10 个 ID 和候选配置的签名清单。浏览器随机排列这 10 个，串行执行每个候选 3 次 1 KiB 请求和 1 次 256 KiB 下载。每个请求 6 秒超时。页面切到后台或网络中断，本次结果作废。
@@ -134,7 +142,22 @@ npx wrangler secret put RUN_SIGNING_SECRET
 
 ## 开发与验证
 
-验证由 [GitHub CI](.github/workflows/ci.yml) 执行：`npm run check` 检查类型和浏览器脚本语法，`npm test` 覆盖静态 CIDR 候选、巨大 IPv6 偏移、唯一性、DNS、签名和测速真实性，`npm run test:runtime` 在隔离 workerd 中验证 DNS 请求，`npm run build` 打包但不部署。PR 和 main 推送都会触发，不需要在用户机器上运行测试；尚未推送的修改不能声称 CI 已通过。
+验证由 [GitHub CI](.github/workflows/ci.yml) 在每次 PR 和 main 推送时执行，Node.js 主版本以 `.node-version` 为准，使用 `npm ci` 按锁文件安装：
+
+| 命令 | 验证范围 |
+| --- | --- |
+| `npm run lint` | ESLint 检查 Worker、浏览器、脚本和测试代码。 |
+| `npm run check` | 生成 Worker 类型，检查源码和 TypeScript 测试的类型，以及浏览器模块语法。 |
+| `npm test` | 静态 CIDR 候选、巨大 IPv6 偏移、唯一性、DNS、签名、测速真实性及静态资源响应/路由回归。 |
+| `npm run test:runtime` | 在隔离 workerd 中验证 DNS 请求。 |
+| `npm run build` | 打包 Worker 与静态资源；使用 `--dry-run`，不部署。 |
+| `npm run test:e2e` | Chromium 桌面/手机交互、键盘导航、320px 布局、浅色/深色与 axe 无障碍检查。 |
+
+浏览器测试使用回环地址的静态资源服务器，执行真实 `app.mjs` / `measure.mjs`，拦截 API 和测速响应；未识别的外部请求会中止并使测试失败。覆盖候选独立生成、十探针测速到模拟写入、入口验证失败和登录失效，不读取真实凭据、不访问真实探针、不写线上 DNS。首次在云工作区运行浏览器检查前安装 `npx playwright install --with-deps chromium`；CI 自动安装。截图和 HTML 报告作为 `browser-report` Actions 制品保留 7 天，失败时另含 trace。
+
+页面的浅色配色、字体栈、间距和卡片参考 `ThaneJoss/webapps` 的 `main`（`994a749aecb7f9143d1d180ce86e3ba5e6632149`），保留本工具的深色偏好支持与测速/DNS 流程。候选表格支持键盘聚焦和滚动，窄屏结果卡使用单列布局。源码仍保持 `public/` 原生 HTML/CSS/模块脚本，无需引入页面框架。
+
+上述质量检查由云端 CI 执行，不需要在用户机器上运行；尚未推送的修改不能声称 CI 已通过。`npm run verify:probes` 属于配置真实入口后的手工外部检查，不在自动 CI 中执行。
 
 测试使用内存响应和虚构凭据，不调用真实 DNS 修改。`.dev.vars.example` 仅为开发凭据格式示例；不存在绕过 Access 的生产开关。`npm run dev` 可预览静态页面，本地 API 仍要求有效的 Access 配置与 JWT。
 

@@ -45,7 +45,7 @@ export async function sample(probe, bytes, timeoutMs, fetcher = fetch) {
     if (size !== bytes) throw new Error('下载不完整或入口返回了错误内容');
     return { latencyMs: headersAt - started, elapsedMs: elapsed, mbps: size * 8 / Math.max(elapsed, 0.001) / 1000 };
   } catch (error) {
-    if (controller.signal.aborted) throw new Error('连接或下载超时');
+    if (controller.signal.aborted) throw new Error('连接或下载超时', { cause: error });
     throw error;
   } finally { controller.abort(); clearTimeout(timeout); }
 }
