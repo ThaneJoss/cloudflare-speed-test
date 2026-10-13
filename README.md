@@ -97,7 +97,7 @@ npx wrangler secret put RUN_SIGNING_SECRET
 
 需要 Node.js 24 或更新版本。部署账户必须有此 Zone 和 Workers 的管理权限。
 
-推送或创建 PR 后，由 GitHub CI 验证类型、单元测试、workerd DNS 回归和构建。确认部署授权后，可执行 `npx wrangler deploy`，或使用下面的 Cloudflare Builds 路径。
+推送或创建 PR 后，由通用 GitHub CI 根据标准项目元数据发现检查，执行范围见下方“开发与验证”。确认部署授权后，可执行 `npx wrangler deploy`，或使用下面的 Cloudflare Builds 路径。
 
 或者在 Cloudflare Workers & Pages 中连接此 GitHub 仓库，选择 **Worker 项目**，构建命令 `npm run check && npm test`，部署命令 `npx wrangler deploy`；在对应 Worker 中配置上面的两个 Secrets。固定入口仍须先通过 `npm run verify:probes`。这是 Worker + Static Assets 项目，不是仅上传 `public/` 的静态 Pages 站点。
 
@@ -134,7 +134,11 @@ npx wrangler secret put RUN_SIGNING_SECRET
 
 ## 开发与验证
 
-验证由 [GitHub CI](.github/workflows/ci.yml) 执行：`npm run check` 检查类型和浏览器脚本语法，`npm test` 覆盖静态 CIDR 候选、巨大 IPv6 偏移、唯一性、DNS、签名和测速真实性，`npm run test:runtime` 在隔离 workerd 中验证 DNS 请求，`npm run build` 打包但不部署。PR 和 main 推送都会触发，不需要在用户机器上运行测试；尚未推送的修改不能声称 CI 已通过。
+质量 CI 使用极简[调用文件](.github/workflows/ci.yml)，固定引用 [`ThaneJoss/github-ci` 的通用工作流](https://github.com/ThaneJoss/github-ci/blob/89624ba02d911171a634ddeb4848c298f3b1c842/.github/workflows/ci.yml)，由 push、pull_request、merge_group 和 workflow_dispatch 触发。调用不传 inputs、env 或 secrets，原独立 `check` job 已移除。
+
+通用 auto 模式从 `package.json` 和锁文件发现标准脚本并执行依赖审计。当前元数据可发现 `test` 和 `build`；原 `check`、`test:runtime` 不在标准发现名称中，未作为专属步骤保留。当前未声明标准 lint、typecheck 或浏览器脚本，这些覆盖不能记为通过。实际执行、失败及 NOT RUN 项以对应提交的 CI 报告为准。
+
+项目脚本与测试代码仍保留：`npm run check` 检查类型和浏览器脚本语法，`npm test` 覆盖静态 CIDR 候选、巨大 IPv6 偏移、唯一性、DNS、签名和测速真实性，`npm run test:runtime` 在隔离 workerd 中验证 DNS 请求，`npm run build` 使用 dry-run 打包。不需要在用户机器上运行测试；尚未推送的修改不能声称 CI 已通过。
 
 测试使用内存响应和虚构凭据，不调用真实 DNS 修改。`.dev.vars.example` 仅为开发凭据格式示例；不存在绕过 Access 的生产开关。`npm run dev` 可预览静态页面，本地 API 仍要求有效的 Access 配置与 JWT。
 
