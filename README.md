@@ -105,6 +105,14 @@ npx wrangler secret put RUN_SIGNING_SECRET
 
 `wrangler.jsonc` 会绑定 `cf-speed-test.thanejoss.com`。目标 `cf-best-ip.thanejoss.com` 由写入按钮管理，不应绑定为本项目的 Custom Domain。
 
+### PR 分支预览
+
+Cloudflare Builds 的现有 PR 流程执行 `npm run build` 后，再执行 `npx wrangler preview`。锁定的 Wrangler 4.149.0 支持独立的 [`previews` 配置](https://developers.cloudflare.com/workers/previews/configuration/)：静态资源和兼容性设置保留在顶层，预览变量、密钥及资源不从生产配置继承。
+
+仓库的 `previews.vars` 使用 `https://preview.invalid` 和空的 Access/DNS 配置，只用于验证分支打包与预览上传；不绑定 DNS Token、签名密钥或生产限流命名空间。预览 API 保持关闭：实际预览 Origin 的 POST 返回 403，状态读取及匹配占位 Origin 的请求在现有 Access 校验处返回 503，不发起探针或 DNS 请求。`npm test` 使用这份实际配置验证拒绝行为及零外联。
+
+预览上传成功不代表存在可访问的 URL。当前 `workers_dev: false`、`preview_urls: false` 及生产 Custom Domain 保持不变；没有为了 PR 开启域名或导入生产 Access/凭据。若要浏览线上预览，需要管理员另行授权并按 [Cloudflare 预览 URL / Access 说明](https://developers.cloudflare.com/workers/previews/custom-domains/)启用受保护的预览地址；要验证真实 API，还需独立的预览 Origin、Access 应用和测试资源。不要把生产配置复制到预览，或通过关闭校验使其可用。
+
 ## 按钮行为
 
 **测速**：每次请求均从规范化去重后的配置池无放回随机抽取 10 个，IPv4 / IPv6 合计 10 个，地址族比例随配置池。服务端只检查本轮这 10 个的公共 DNS 与 Cloudflare 网段；若其中一个未通过，明确返回本轮候选及原因，不偷偷补抽或缩减数量。全部验证通过后发放 10 分钟有效、绑定当前登录用户、本轮 10 个 ID 和候选配置的签名清单。浏览器随机排列这 10 个，串行执行每个候选 3 次 1 KiB 请求和 1 次 256 KiB 下载。每个请求 6 秒超时。页面切到后台或网络中断，本次结果作废。
