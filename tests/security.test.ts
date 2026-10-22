@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
-import worker, { authorizeSelection, getPlan, parseSelection, requireOrigin } from '../src/worker.ts';
+import worker, { authorizeSelection, getCandidates, getPlan, parseSelection, requireOrigin } from '../src/worker.ts';
 import { authenticate, signRun, verifyRun } from '../src/auth.ts';
-import { loadProbes, validateProbeDns } from '../src/probes.ts';
+import { loadProbes, validateProbeDns, type Probe } from '../src/probes.ts';
 import { sampleCandidateIps } from '../src/candidates.ts';
 
 const probes = loadProbes([{ id: 'v4', name: 'IPv4', ip: '104.16.0.1', url: 'https://v4.example.com/__cfst' }]);
@@ -32,7 +32,7 @@ test('write authorization accepts sampled candidates and rejects a real pool can
   const pool = loadProbes(Array.from({ length: 20 }, (_, index) => ({ id: `edge-${index}`, name: `Test fixture ${index}`, ip: `104.16.0.${index + 1}`, url: `https://edge-${index}.example.com/__cfst` })));
   const manifest = 'sampling-security-test-manifest';
   const response = await getPlan(pool, secret, 'user1', manifest, { randomUint32: () => 0, getRanges: async () => ['104.16.0.0/13'], validateDns: async () => {} });
-  const plan = await response.json();
+  const plan = await response.json<{ probes: Probe[]; runToken: string }>();
   const result = { id: plan.probes[0].id, successes: 3, attempts: 3, latencyMs: 50, mbps: 20 };
   const selected = await authorizeSelection({ runToken: plan.runToken, selected: [result] }, pool, secret, 'user1', manifest);
   assert.equal(selected[0].id, plan.probes[0].id);
@@ -42,13 +42,14 @@ test('write authorization accepts sampled candidates and rejects a real pool can
 test('missing Access configuration or JWT fails closed', async () => {
   await assert.rejects(() => authenticate(new Request(origin), '', ''), /配置/);
   await assert.rejects(() => authenticate(new Request(origin), 'example.cloudflareaccess.com', 'aud'), /登录/);
-  const response = await worker.fetch(new Request(`${origin}/api/write`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' } }), { ACCESS_TEAM_DOMAIN: '', ACCESS_AUD: '', APP_ORIGIN: origin } as Env, {} as ExecutionContext);
+  // Missing bindings and invalid values are intentional authentication fixtures.
+  const response = await worker.fetch(new Request(`${origin}/api/write`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' } }), { ACCESS_TEAM_DOMAIN: '', ACCESS_AUD: '', APP_ORIGIN: origin } as unknown as Env);
   assert.equal(response.status, 503);
 });
 test('raw candidate generation retains exact Origin and Access requirements', async () => {
-  const wrongOrigin = await worker.fetch(new Request(`${origin}/api/candidates`, { method: 'POST', headers: { Origin: 'https://attacker.example', 'Content-Type': 'application/json' } }), { APP_ORIGIN: origin } as Env, {} as ExecutionContext);
+  const wrongOrigin = await worker.fetch(new Request(`${origin}/api/candidates`, { method: 'POST', headers: { Origin: 'https://attacker.example', 'Content-Type': 'application/json' } }), { APP_ORIGIN: origin } as Env);
   assert.equal(wrongOrigin.status, 403);
-  const missingLogin = await worker.fetch(new Request(`${origin}/api/candidates`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' } }), { APP_ORIGIN: origin, ACCESS_TEAM_DOMAIN: 'example.cloudflareaccess.com', ACCESS_AUD: 'test-audience' } as Env, {} as ExecutionContext);
+  const missingLogin = await worker.fetch(new Request(`${origin}/api/candidates`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' } }), { APP_ORIGIN: origin, ACCESS_TEAM_DOMAIN: 'example.cloudflareaccess.com', ACCESS_AUD: 'test-audience' } as unknown as Env);
   assert.equal(missingLogin.status, 401);
 });
 test('an authenticated raw request works with the empty probe manifest and no DNS, limiter or signing bindings', async t => {
@@ -63,9 +64,9 @@ test('an authenticated raw request works with the empty probe manifest and no DN
     assert.equal(url, `${issuer}/cdn-cgi/access/certs`);
     return Response.json({ keys: [jwk] });
   });
-  const response = await worker.fetch(new Request(`${origin}/api/candidates`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'Cf-Access-Jwt-Assertion': token } }), { APP_ORIGIN: origin, ACCESS_TEAM_DOMAIN: 'example.cloudflareaccess.com', ACCESS_AUD: 'test-audience' } as Env, {} as ExecutionContext);
+  const response = await worker.fetch(new Request(`${origin}/api/candidates`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json', 'Cf-Access-Jwt-Assertion': token } }), { APP_ORIGIN: origin, ACCESS_TEAM_DOMAIN: 'example.cloudflareaccess.com', ACCESS_AUD: 'test-audience' } as unknown as Env);
   assert.equal(response.status, 200);
-  const body = await response.json();
+  const body = await response.json<ReturnType<typeof getCandidates>>();
   assert.equal(body.candidates.length, 20);
   assert.equal(body.candidatePool.sampleSize, 20);
   assert.deepEqual(body.candidatePool.distribution, { ipv4: 10, ipv6: 10 });

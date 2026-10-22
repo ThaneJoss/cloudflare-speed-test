@@ -2,13 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { verifyRun } from '../src/auth.ts';
 import { AppError, SAMPLE_SIZE } from '../src/constants.ts';
-import { loadProbes } from '../src/probes.ts';
+import { loadProbes, type Probe } from '../src/probes.ts';
 import { sampleProbes, uniqueProbes } from '../src/sampling.ts';
 import { getPlan } from '../src/worker.ts';
 
 const secret = 'test-only-signing-secret-with-32-characters';
 const subject = 'sampling-test-user';
 const manifest = 'sampling-test-manifest';
+type Plan = { probes: Probe[]; runToken: string; sampleSize: number };
+type RejectedPlan = { code: string; selected: Probe[]; rejected: { id: string; error: string }[] };
 const makePool = (count: number) => loadProbes(Array.from({ length: count }, (_, index) => ({
   id: `edge-${index}`, name: `Test fixture ${index}`, ip: `104.16.${Math.floor(index / 256)}.${index % 256}`, url: `https://edge-${index}.example.com/__cfst`
 })));
@@ -106,7 +108,7 @@ test('the real plan validates only the ten sampled entries in batches of at most
     }
   });
   assert.equal(response.status, 200);
-  const body = await response.json();
+  const body = await response.json<Plan>();
   const ids = body.probes.map((probe: { id: string }) => probe.id);
   assert.equal(body.sampleSize, SAMPLE_SIZE);
   assert.equal(ids.length, SAMPLE_SIZE);
@@ -130,7 +132,7 @@ test('a failed sampled DNS check returns all ten selected entries and never repl
     }
   });
   assert.equal(response.status, 422);
-  const body = await response.json();
+  const body = await response.json<RejectedPlan>();
   assert.equal(body.code, 'PROBE_SAMPLE_REJECTED');
   assert.equal(body.selected.length, SAMPLE_SIZE);
   assert.deepEqual(checked, body.selected.map((probe: { id: string }) => probe.id));
@@ -148,8 +150,8 @@ test('each plan request independently redraws and revalidates instead of reusing
     getRanges: async () => ['104.16.0.0/13'],
     validateDns: async (probe: { id: string }) => { checked.push(probe.id); }
   };
-  const first = await (await getPlan(pool, secret, subject, manifest, dependencies)).json();
-  const second = await (await getPlan(pool, secret, subject, manifest, dependencies)).json();
+  const first = await (await getPlan(pool, secret, subject, manifest, dependencies)).json<Plan>();
+  const second = await (await getPlan(pool, secret, subject, manifest, dependencies)).json<Plan>();
   assert.equal(draws, SAMPLE_SIZE * 2);
   assert.equal(checked.length, SAMPLE_SIZE * 2);
   assert.notDeepEqual(first.probes, second.probes);

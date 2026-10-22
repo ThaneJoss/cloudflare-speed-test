@@ -144,9 +144,24 @@ Cloudflare Builds 的现有 PR 流程执行 `npm run build` 后，再执行 `npx
 
 质量 CI 使用极简[调用文件](.github/workflows/ci.yml)，固定引用 [`ThaneJoss/github-ci` 的通用工作流](https://github.com/ThaneJoss/github-ci/blob/89624ba02d911171a634ddeb4848c298f3b1c842/.github/workflows/ci.yml)，由 push、pull_request、merge_group 和 workflow_dispatch 触发。调用不传 inputs、env 或 secrets，原独立 `check` job 已移除。
 
-通用 auto 模式从 `package.json` 和锁文件发现标准脚本并执行依赖审计。当前元数据可发现 `test` 和 `build`；原 `check`、`test:runtime` 不在标准发现名称中，未作为专属步骤保留。当前未声明标准 lint、typecheck 或浏览器脚本，这些覆盖不能记为通过。实际执行、失败及 NOT RUN 项以对应提交的 CI 报告为准。
+通用 auto 模式从 `package.json` 和锁文件发现 `lint`、`test`、`build`，并执行 JavaScript 语法检查和依赖审计。`check`、`test:runtime`、`test:e2e` 不属于自动发现名称，因此类型检查、workerd DNS 回归和浏览器/axe 验收需在云工作区单独执行，不能把 CI 的 NOT RUN 记为通过。实际覆盖以对应提交的 CI 报告为准。
 
-项目脚本与测试代码仍保留：`npm run check` 检查类型和浏览器脚本语法，`npm test` 覆盖静态 CIDR 候选、巨大 IPv6 偏移、唯一性、DNS、签名和测速真实性，`npm run test:runtime` 在隔离 workerd 中验证 DNS 请求，`npm run build` 使用 dry-run 打包。不需要在用户机器上运行测试；尚未推送的修改不能声称 CI 已通过。
+项目保留以下脚本和测试源码。Node.js 主版本以 `.node-version` 为准，使用 `npm ci` 按锁文件安装：
+
+| 命令 | 验证范围 |
+| --- | --- |
+| `npm run lint` | ESLint 检查 Worker、浏览器、脚本和测试代码。 |
+| `npm run check` | 生成 Worker 类型，检查源码和 TypeScript 测试的类型，以及浏览器模块语法。 |
+| `npm test` | 静态 CIDR 候选、巨大 IPv6 偏移、唯一性、DNS、签名、测速真实性、静态资源响应/路由及预览隔离回归。 |
+| `npm run test:runtime` | 在隔离 workerd 中验证 DNS 请求。 |
+| `npm run build` | 打包 Worker 与静态资源；使用 `--dry-run`，不部署。 |
+| `npm run test:e2e` | Chromium 桌面/手机交互、键盘导航、320px 布局、浅色/深色与 axe 无障碍检查。 |
+
+浏览器测试使用回环地址的静态资源服务器，执行真实 `app.mjs` / `measure.mjs`，拦截 API 和测速响应；未识别的外部请求会中止并使测试失败。覆盖候选独立生成、十探针测速到模拟写入、入口验证失败和登录失效，不读取真实凭据、不访问真实探针、不写线上 DNS。首次在云工作区运行浏览器检查前安装 `npx playwright install --with-deps chromium`。截图保存在 `test-results/`，HTML 报告保存在 `playwright-report/`，失败时另含 trace；通用 CI 不自动安装浏览器或上传这些制品。
+
+页面的浅色配色、字体栈、间距和卡片参考 `ThaneJoss/webapps` 的 `main`（`994a749aecb7f9143d1d180ce86e3ba5e6632149`），保留本工具的深色偏好支持与测速/DNS 流程。候选表格支持键盘聚焦和滚动，窄屏结果卡使用单列布局。源码仍保持 `public/` 原生 HTML/CSS/模块脚本，无需引入页面框架。
+
+上述检查可在云工作区执行，不需要在用户机器上运行；尚未推送的修改不能声称 CI 已通过。`npm run verify:probes` 属于配置真实入口后的手工外部检查，不在自动 CI 中执行。
 
 测试使用内存响应和虚构凭据，不调用真实 DNS 修改。`.dev.vars.example` 仅为开发凭据格式示例；不存在绕过 Access 的生产开关。`npm run dev` 可预览静态页面，本地 API 仍要求有效的 Access 配置与 JWT。
 
