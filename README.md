@@ -142,7 +142,7 @@ Cloudflare Builds 的现有 PR 流程执行 `npm run build` 后，再执行 `npx
 
 ## 开发与验证
 
-质量 CI 使用极简[调用文件](.github/workflows/ci.yml)，固定引用 [`ThaneJoss/github-ci` 的通用工作流](https://github.com/ThaneJoss/github-ci/blob/89624ba02d911171a634ddeb4848c298f3b1c842/.github/workflows/ci.yml)，由 push、pull_request、merge_group 和 workflow_dispatch 触发。调用不传 inputs、env 或 secrets，原独立 `check` job 已移除。
+质量 CI 使用极简[调用文件](.github/workflows/ci.yml)，以 `@main` 引用 [`ThaneJoss/github-ci` 的通用工作流](https://github.com/ThaneJoss/github-ci/blob/main/.github/workflows/ci.yml)，由 push、pull_request、merge_group 和 workflow_dispatch 触发。每次新运行使用当时 `main` 的版本，实际解析的提交以运行记录为准。调用不传 inputs、env 或 secrets，原独立 `check` job 已移除。
 
 通用 auto 模式从 `package.json` 和锁文件发现 `lint`、`test`、`build`，并执行 JavaScript 语法检查和依赖审计。`check`、`test:runtime`、`test:e2e` 不属于自动发现名称，因此类型检查、workerd DNS 回归和浏览器/axe 验收需在云工作区单独执行，不能把 CI 的 NOT RUN 记为通过。实际覆盖以对应提交的 CI 报告为准。
 
