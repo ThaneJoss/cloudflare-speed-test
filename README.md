@@ -97,13 +97,21 @@ npx wrangler secret put RUN_SIGNING_SECRET
 
 需要 Node.js 24 或更新版本。部署账户必须有此 Zone 和 Workers 的管理权限。
 
-推送或创建 PR 后，由 GitHub CI 验证类型、单元测试、workerd DNS 回归和构建。确认部署授权后，可执行 `npx wrangler deploy`，或使用下面的 Cloudflare Builds 路径。
+推送或创建 PR 后，由通用 GitHub CI 根据标准项目元数据发现检查，执行范围见下方“开发与验证”。确认部署授权后，可执行 `npx wrangler deploy`，或使用下面的 Cloudflare Builds 路径。
 
 或者在 Cloudflare Workers & Pages 中连接此 GitHub 仓库，选择 **Worker 项目**，构建命令 `npm run check && npm test`，部署命令 `npx wrangler deploy`；在对应 Worker 中配置上面的两个 Secrets。固定入口仍须先通过 `npm run verify:probes`。这是 Worker + Static Assets 项目，不是仅上传 `public/` 的静态 Pages 站点。
 
 此仓库的部署目标是 **`cloudflare-speed-test`**，与线上 Custom Domain 实际绑定的 Worker 一致。配置运行时 Secrets 时请核对这个 Worker；Workers Builds 的构建变量不能代替运行时绑定。
 
 `wrangler.jsonc` 会绑定 `cf-speed-test.thanejoss.com`。目标 `cf-best-ip.thanejoss.com` 由写入按钮管理，不应绑定为本项目的 Custom Domain。
+
+### PR 分支预览
+
+Cloudflare Builds 的现有 PR 流程执行 `npm run build` 后，再执行 `npx wrangler preview`。锁定的 Wrangler 4.149.0 支持独立的 [`previews` 配置](https://developers.cloudflare.com/workers/previews/configuration/)：静态资源和兼容性设置保留在顶层，预览变量、密钥及资源不从生产配置继承。
+
+仓库的 `previews.vars` 使用 `https://preview.invalid` 和空的 Access/DNS 配置，只用于验证分支打包与预览上传；不绑定 DNS Token、签名密钥或生产限流命名空间。预览 API 保持关闭：实际预览 Origin 的 POST 返回 403，状态读取及匹配占位 Origin 的请求在现有 Access 校验处返回 503，不发起探针或 DNS 请求。`npm test` 使用这份实际配置验证拒绝行为及零外联。
+
+预览上传成功不代表存在可访问的 URL。当前 `workers_dev: false`、`preview_urls: false` 及生产 Custom Domain 保持不变；没有为了 PR 开启域名或导入生产 Access/凭据。若要浏览线上预览，需要管理员另行授权并按 [Cloudflare 预览 URL / Access 说明](https://developers.cloudflare.com/workers/previews/custom-domains/)启用受保护的预览地址；要验证真实 API，还需独立的预览 Origin、Access 应用和测试资源。不要把生产配置复制到预览，或通过关闭校验使其可用。
 
 ## 按钮行为
 
@@ -134,7 +142,11 @@ npx wrangler secret put RUN_SIGNING_SECRET
 
 ## 开发与验证
 
-验证由 [GitHub CI](.github/workflows/ci.yml) 执行：`npm run check` 检查类型和浏览器脚本语法，`npm test` 覆盖静态 CIDR 候选、巨大 IPv6 偏移、唯一性、DNS、签名和测速真实性，`npm run test:runtime` 在隔离 workerd 中验证 DNS 请求，`npm run build` 打包但不部署。PR 和 main 推送都会触发，不需要在用户机器上运行测试；尚未推送的修改不能声称 CI 已通过。
+质量 CI 使用极简[调用文件](.github/workflows/ci.yml)，固定引用 [`ThaneJoss/github-ci` 的通用工作流](https://github.com/ThaneJoss/github-ci/blob/89624ba02d911171a634ddeb4848c298f3b1c842/.github/workflows/ci.yml)，由 push、pull_request、merge_group 和 workflow_dispatch 触发。调用不传 inputs、env 或 secrets，原独立 `check` job 已移除。
+
+通用 auto 模式从 `package.json` 和锁文件发现标准脚本并执行依赖审计。当前元数据可发现 `test` 和 `build`；原 `check`、`test:runtime` 不在标准发现名称中，未作为专属步骤保留。当前未声明标准 lint、typecheck 或浏览器脚本，这些覆盖不能记为通过。实际执行、失败及 NOT RUN 项以对应提交的 CI 报告为准。
+
+项目脚本与测试代码仍保留：`npm run check` 检查类型和浏览器脚本语法，`npm test` 覆盖静态 CIDR 候选、巨大 IPv6 偏移、唯一性、DNS、签名和测速真实性，`npm run test:runtime` 在隔离 workerd 中验证 DNS 请求，`npm run build` 使用 dry-run 打包。不需要在用户机器上运行测试；尚未推送的修改不能声称 CI 已通过。
 
 测试使用内存响应和虚构凭据，不调用真实 DNS 修改。`.dev.vars.example` 仅为开发凭据格式示例；不存在绕过 Access 的生产开关。`npm run dev` 可预览静态页面，本地 API 仍要求有效的 Access 配置与 JWT。
 

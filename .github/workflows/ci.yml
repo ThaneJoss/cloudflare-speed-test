@@ -1,21 +1,11 @@
-name: Check
-on:
-  push:
-    branches: [main]
-  pull_request:
+name: CI
+'on':
+  push: {}
+  pull_request: {}
+  merge_group: {}
+  workflow_dispatch: {}
 permissions:
   contents: read
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-      - run: npm ci
-      - run: npm run check
-      - run: npm test
-      - run: npm run test:runtime
-      - run: npm run build
+  ci:
+    uses: ThaneJoss/github-ci/.github/workflows/ci.yml@89624ba02d911171a634ddeb4848c298f3b1c842
